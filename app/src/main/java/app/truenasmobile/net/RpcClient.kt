@@ -226,7 +226,11 @@ class RpcClient(
     private fun formatValidation(extra: JSONArray): String? {
         val lines = (0 until extra.length()).mapNotNull { i ->
             val item = extra.optJSONArray(i) ?: return@mapNotNull null
-            val attr = item.optString(0).substringAfterLast('.')
+            // "app_create.values.storage.config.host_path_config.path" → "host_path_config › path"
+            val attr = item.optString(0).split('.')
+                .filter { it.isNotBlank() && it !in setOf("app_create", "values") && it.toIntOrNull() == null }
+                .takeLast(2)
+                .joinToString(" › ")
             val text = item.optString(1)
             if (text.isBlank()) null else if (attr.isBlank()) text else "$attr: $text"
         }

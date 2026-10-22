@@ -18,10 +18,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -84,6 +86,13 @@ fun AppsScreen() {
         actions = {
             if (updates > 0) TextButton(onClick = { confirmUpdateAll = true }) { Text("Update all") }
         },
+        fab = {
+            ExtendedFloatingActionButton(
+                onClick = { chrome.nav.push(Route.Catalog) },
+                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                text = { Text("Install app") },
+            )
+        },
     ) {
         PullToRefreshBox(isRefreshing = refreshing, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
             LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
@@ -92,7 +101,7 @@ fun AppsScreen() {
                     return@LazyColumn
                 }
                 if (list.isEmpty()) {
-                    item { EmptyState(Icons.Outlined.Apps, "No apps installed", "Install apps from the TrueNAS web UI and they'll show up here.") }
+                    item { EmptyState(Icons.Outlined.Apps, "No apps installed yet", "Tap Install app to browse the TrueNAS catalog.") }
                     return@LazyColumn
                 }
                 item {

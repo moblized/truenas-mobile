@@ -193,6 +193,62 @@ class TrueNasApi(val rpc: RpcClient) {
     suspend fun pullImages(name: String, onProgress: (JobProgress) -> Unit) =
         runJob("app.pull_images", listOf(name, mapOf("redeploy" to true)), onProgress)
 
+    // ---------- App catalog ----------
+
+    /** Catalog apps (without the heavy README/screenshots), most popular first. */
+    suspend fun availableApps(): List<CatalogApp> {
+        val options = mapOf(
+            "select" to listOf(
+                "name", "title", "description", "icon_url", "train", "categories", "installed",
+                "recommended", "popularity_rank", "latest_version", "latest_human_version",
+            ),
+        )
+        return Parse.list(rpc.call("app.available", listOf(emptyList<Any>(), options), timeoutMs = 90_000))
+            .map(Schema::catalogApp)
+            .filter { it.name.isNotBlank() }
+            .sortedWith(compareBy<CatalogApp>({ it.popularity ?: Int.MAX_VALUE }, { it.title.lowercase() }))
+    }
+
+    suspend fun appCategories(): List<String> = try {
+        (rpc.call("app.categories") as? JSONArray)?.let { a -> (0 until a.length()).map { a.optString(it) } }
+            ?.filter { it.isNotBlank() }?.sorted() ?: emptyList()
+    } catch (e: RpcException) {
+        emptyList()
+    }
+
+    /** Install questions and default values for the newest version of a catalog app. */
+    suspend fun catalogAppDetails(name: String, train: String): CatalogAppDetails {
+        val r = rpc.call("catalog.get_app_details", listOf(name, mapOf("train" to train)), timeoutMs = 90_000) as? JSONObject
+            ?: throw RpcException(-32001, "The catalog didn't return details for $name")
+        return Schema.details(r, train) ?: throw RpcException(-32001, "No installable version of $name was found")
+    }
+
+    /** Installs a catalog app. Pulling images can take a while; progress is reported along the way. */
+    suspend fun installApp(
+        appName: String,
+        catalogApp: String,
+        train: String,
+        version: String,
+        values: Map<String, Any?>,
+        onProgress: (JobProgress) -> Unit,
+    ) {
+        runJob(
+            "app.create",
+            listOf(
+                mapOf(
+                    "custom_app" to false,
+                    "catalog_app" to catalogApp,
+                    "app_name" to appName,
+                    "train" to train,
+                    "version" to version,
+                    "values" to values,
+                ),
+            ),
+            onProgress,
+            timeoutMs = 60 * 60_000,
+        )
+    }
+
     // ---------- Alerts ----------
 
     suspend fun alerts(): List<Alert> = Parse.list(rpc.call("alert.list")).map(Parse::alert)

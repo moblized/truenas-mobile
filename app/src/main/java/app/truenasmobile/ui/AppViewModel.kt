@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import app.truenasmobile.api.Alert
 import app.truenasmobile.api.App
 import app.truenasmobile.api.AppStat
+import app.truenasmobile.api.CatalogApp
+import app.truenasmobile.api.CatalogAppDetails
 import app.truenasmobile.api.Dataset
 import app.truenasmobile.api.Disk
 import app.truenasmobile.api.JobProgress
@@ -26,6 +28,7 @@ import app.truenasmobile.data.ServerProfile
 import app.truenasmobile.data.Settings
 import app.truenasmobile.data.Store
 import app.truenasmobile.net.CertInfo
+import app.truenasmobile.net.DisconnectedException
 import app.truenasmobile.net.Endpoint
 import app.truenasmobile.net.RpcEvent
 import app.truenasmobile.net.str
@@ -74,6 +77,22 @@ enum class AppAction(val verb: String, val doneVerb: String) {
     PULL_IMAGES("Pulling images for", "updated"),
 }
 
+sealed interface DetailsState {
+    data object Loading : DetailsState
+    data class Ready(val details: CatalogAppDetails) : DetailsState
+    data class Failed(val message: String) : DetailsState
+}
+
+/** An install in progress (or just finished/failed) from the install screen. */
+data class InstallRun(
+    val appName: String,
+    val label: String,
+    val error: String? = null,
+    val done: Boolean = false,
+) {
+    val running: Boolean get() = !done && error == null
+}
+
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val store = Store(application)
 
@@ -105,6 +124,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val logLines = MutableStateFlow<List<String>>(emptyList())
     val logStatus = MutableStateFlow<String?>(null)
     val serverTest = MutableStateFlow<ServerTest>(ServerTest.Idle)
+    val catalog = MutableStateFlow<List<CatalogApp>?>(null)
+    val catalogError = MutableStateFlow<String?>(null)
+    val installDetails = MutableStateFlow<DetailsState>(DetailsState.Loading)
+    val install = MutableStateFlow<InstallRun?>(null)
 
     /** Operations in progress, keyed like "app:jellyfin" → "Stopping… 40%". */
     val busy = MutableStateFlow<Map<String, String>>(emptyMap())
@@ -185,6 +208,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         snapshots.value = null
         snapshotsDataset.value = null
         busy.value = emptyMap()
+        catalog.value = null
+        catalogError.value = null
+        install.value = null
     }
 
     private suspend fun runSession(profile: ServerProfile) {
@@ -390,6 +416,84 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             snapshotsDataset.value = dataset
         }
         viewModelScope.launch { load(snapshots, report = true) { it.snapshots(dataset) } }
+    }
+
+    // ------------------------------------------------------------------ app catalog
+
+    fun loadCatalog(force: Boolean = false) {
+        if (!force && catalog.value != null) return
+        val a = api ?: return
+        catalogError.value = null
+        viewModelScope.launch {
+            try {
+                catalog.value = a.availableApps()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                catalogError.value = Connector.friendly(e)
+            }
+        }
+    }
+
+    private var detailsKey: String? = null
+
+    fun loadInstallDetails(name: String, train: String) {
+        val key = "$train/$name"
+        if (detailsKey == key && installDetails.value is DetailsState.Ready) return
+        detailsKey = key
+        installDetails.value = DetailsState.Loading
+        val a = api
+        if (a == null) {
+            installDetails.value = DetailsState.Failed("Not connected to the server")
+            return
+        }
+        viewModelScope.launch {
+            installDetails.value = try {
+                DetailsState.Ready(a.catalogAppDetails(name, train))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                DetailsState.Failed(Connector.friendly(e))
+            }
+        }
+    }
+
+    fun installApp(details: CatalogAppDetails, appName: String, values: Map<String, Any?>) {
+        val a = api
+        if (a == null) {
+            toast("Not connected to the server")
+            return
+        }
+        if (install.value?.running == true) return
+        install.value = InstallRun(appName, "Starting install…")
+        viewModelScope.launch {
+            try {
+                a.installApp(appName, details.name, details.train, details.version, values) { p ->
+                    val head = progressLabel("Installing", p)
+                    val detail = p.description?.trim()?.takeIf { it.isNotEmpty() && !it.equals("Installing", true) }
+                    install.value = InstallRun(appName, if (detail != null) "$head\n$detail" else head)
+                }
+                install.value = InstallRun(appName, "Installed", done = true)
+                toast("${details.title} installed as $appName")
+                catalog.update { list ->
+                    list?.map { if (it.name == details.name && it.train == details.train) it.copy(installed = true) else it }
+                }
+                load(apps) { it.apps() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val msg = if (e is DisconnectedException) {
+                    "Lost the connection while installing. The install may still finish; check the Apps tab in a minute."
+                } else {
+                    Connector.friendly(e)
+                }
+                install.value = InstallRun(appName, "", error = msg)
+            }
+        }
+    }
+
+    fun clearInstall() {
+        if (install.value?.running != true) install.value = null
     }
 
     private fun markAlertsSeen() {

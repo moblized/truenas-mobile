@@ -80,6 +80,8 @@ import app.truenasmobile.net.CertInfo
 import app.truenasmobile.ui.screens.AlertsScreen
 import app.truenasmobile.ui.screens.AppDetailScreen
 import app.truenasmobile.ui.screens.AppsScreen
+import app.truenasmobile.ui.screens.CatalogScreen
+import app.truenasmobile.ui.screens.InstallScreen
 import app.truenasmobile.ui.screens.DashboardScreen
 import app.truenasmobile.ui.screens.LogsScreen
 import app.truenasmobile.ui.screens.MoreScreen
@@ -107,6 +109,8 @@ sealed interface Route {
     data class Snapshots(val dataset: String) : Route
     data class AppDetail(val name: String) : Route
     data class Logs(val app: String, val containerId: String, val title: String) : Route
+    data object Catalog : Route
+    data class Install(val name: String, val train: String) : Route
     data object Services : Route
     data object Shares : Route
     data object Power : Route
@@ -222,6 +226,8 @@ fun AppRoot(vm: AppViewModel, openAlertsSignal: Int) {
                         is Route.Snapshots -> SnapshotsScreen(target.dataset)
                         is Route.AppDetail -> AppDetailScreen(target.name)
                         is Route.Logs -> LogsScreen(target.app, target.containerId, target.title)
+                        Route.Catalog -> CatalogScreen()
+                        is Route.Install -> InstallScreen(target.name, target.train)
                         Route.Services -> ServicesScreen()
                         Route.Shares -> SharesScreen()
                         Route.Power -> PowerScreen()
