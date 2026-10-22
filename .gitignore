@@ -1,0 +1,14 @@
+*.iml
+.gradle/
+.idea/
+.kotlin/
+local.properties
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.keystore
+*.jks
+# The shared signing key for sideloaded builds is the one exception,
+# so every new APK installs over the previous one.
+!keystore/debug.keystore

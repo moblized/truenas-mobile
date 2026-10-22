@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Plain http:// is allowed because many home servers are reached by LAN IP.
+     The app still defaults to https:// and refuses to send an API key over plain http,
+     since TrueNAS revokes keys that are used without TLS. Certificates are checked by
+     the app itself (system trust, or a certificate you approved by fingerprint). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

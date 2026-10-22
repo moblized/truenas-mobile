@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TrueNAS Mobile</string>
+    <string name="alerts_channel">Server alerts</string>
+    <string name="alerts_channel_desc">New warnings and critical alerts from your TrueNAS server</string>
+</resources>

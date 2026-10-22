@@ -1,0 +1,59 @@
+name: Build APK
+
+# Every push to main: run the tests, build the APK, and publish it as a GitHub Release
+# (repo page → Releases). Pull requests just build and test.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, for the release notes
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run tests and build
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
+
+      - name: Name the APK
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk "out/truenas-mobile-1.0.${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: truenas-mobile-apk
+          path: out/*.apk
+
+      - name: Publish release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="1.0.${{ github.run_number }}"
+          # Release notes = every commit since the previous release, without sign-off lines.
+          previous=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          range=${previous:+$previous..}HEAD
+          git log "$range" --format='### %s%n%n%b' | sed '/^Co-Authored-By:/d;/^Claude-Session:/d' > notes.md
+          printf '\n---\n**Install:** on your phone, download `truenas-mobile-%s.apk` below and open it. It installs over any earlier version and keeps your saved servers.\n' "$version" >> notes.md
+          gh release create "v$version" out/*.apk \
+            --title "TrueNAS Mobile $version" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA" \
+            --latest
