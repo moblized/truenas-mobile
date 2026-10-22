@@ -1,6 +1,18 @@
 package app.truenasmobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -78,12 +90,49 @@ fun AppDetailScreen(name: String) {
     val app = apps?.firstOrNull { it.name == name }
     var confirm by remember { mutableStateOf<AppAction?>(null) }
     var showNotes by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    var rollbackChoices by remember { mutableStateOf<List<String>?>(null) }
     val uri = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
 
     ScreenScaffold(
         title = app?.title ?: name,
         subtitle = app?.let { "${appStateLabel(it.state)} · v${it.humanVersion}" },
         showBack = true,
+        actions = {
+            if (app != null) {
+                IconButton(onClick = {
+                    chrome.nav.push(if (app.customApp) Route.Yaml(app.name) else Route.EditApp(app.name))
+                }) { Icon(Icons.Outlined.Edit, contentDescription = "Edit settings") }
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "More") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        if (!app.customApp) {
+                            DropdownMenuItem(
+                                text = { Text("Roll back…") },
+                                leadingIcon = { Icon(Icons.Outlined.History, contentDescription = null) },
+                                onClick = {
+                                    menu = false
+                                    scope.launch {
+                                        val versions = vm.rollbackVersions(app.name)
+                                        if (versions.isEmpty()) vm.showMessage("No earlier version to roll back to") else rollbackChoices = versions
+                                    }
+                                },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Delete app", color = AppColors.status.bad) },
+                            leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = AppColors.status.bad) },
+                            onClick = {
+                                menu = false
+                                deleting = true
+                            },
+                        )
+                    }
+                }
+            }
+        },
     ) {
         if (app == null) {
             EmptyState(Icons.Outlined.Info, if (apps == null) "Loading…" else "App not found")
@@ -144,6 +193,40 @@ fun AppDetailScreen(name: String) {
         }
     }
 
+    if (deleting && app != null) {
+        DeleteAppDialog(
+            title = app.title,
+            custom = app.customApp,
+            onDelete = { removeData -> vm.deleteApp(app, removeData) { chrome.nav.back() } },
+            onDismiss = { deleting = false },
+        )
+    }
+    rollbackChoices?.let { versions ->
+        if (app != null) {
+            AlertDialog(
+                onDismissRequest = { rollbackChoices = null },
+                title = { Text("Roll back ${app.title}") },
+                text = {
+                    Column {
+                        Text(
+                            "Goes back to an earlier version you had installed, restoring its data snapshot if there is one.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        versions.forEach { v ->
+                            TextButton(onClick = {
+                                rollbackChoices = null
+                                vm.rollbackApp(app, v)
+                            }) { Text("Version $v") }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { rollbackChoices = null }) { Text("Cancel") } },
+            )
+        }
+    }
+
     val current = app
     val action = confirm
     if (current != null && action != null) {
@@ -167,6 +250,34 @@ fun AppDetailScreen(name: String) {
             onDismiss = { confirm = null },
         )
     }
+}
+
+@Composable
+private fun DeleteAppDialog(title: String, custom: Boolean, onDelete: (Boolean) -> Unit, onDismiss: () -> Unit) {
+    var removeData by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = AppColors.status.bad) },
+        title = { Text("Delete $title?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("The app and its containers are removed. Folders you chose yourself are never touched.", style = MaterialTheme.typography.bodyMedium)
+                if (!custom) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = removeData, onCheckedChange = { removeData = it })
+                        Text("Also delete the data TrueNAS created for it (Automatic storage). This can't be undone.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onDelete(removeData)
+                onDismiss()
+            }) { Text("Delete", color = AppColors.status.bad, fontWeight = FontWeight.SemiBold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Portal links often point at 0.0.0.0; swap in the server's address. */

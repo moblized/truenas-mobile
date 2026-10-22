@@ -12,50 +12,7 @@ import org.junit.Test
 /** Install-form logic, using a trimmed copy of the Jellyfin catalog questions. */
 class SchemaTest {
 
-    private val detailsJson = """
-    {"name": "jellyfin", "title": "Jellyfin", "description": "Media server", "icon_url": "https://media.sys.truenas.net/apps/jellyfin/icons/icon.png",
-     "home": "https://jellyfin.org", "latest_version": "1.2.3", "screenshots": [],
-     "versions": {
-       "1.2.3": {"supported": true, "human_version": "10.10.7_1.2.3",
-         "schema": {
-           "groups": [{"name": "Jellyfin Configuration", "description": "Configure Jellyfin"},
-                      {"name": "Network Configuration", "description": "Configure Network</br>for Jellyfin"},
-                      {"name": "Storage Configuration", "description": "Storage"}],
-           "questions": [
-             {"variable": "TZ", "group": "Jellyfin Configuration", "label": "Timezone",
-              "schema": {"type": "string", "default": "America/New_York", "required": true,
-                         "enum": [{"value": "Etc/UTC", "description": "'Etc/UTC' timezone"}, {"value": "America/New_York", "description": "'America/New_York' timezone"}]}},
-             {"variable": "network", "group": "Network Configuration", "label": "",
-              "schema": {"type": "dict", "attrs": [
-                {"variable": "host_network", "label": "Host Network", "schema": {"type": "boolean", "default": false}},
-                {"variable": "web_port", "label": "WebUI Port", "schema": {"type": "dict", "show_if": [["host_network", "=", false]], "attrs": [
-                  {"variable": "bind_mode", "label": "Port Bind Mode", "schema": {"type": "string", "default": "published",
-                     "enum": [{"value": "published", "description": "Publish"}, {"value": "", "description": "None"}]}},
-                  {"variable": "port_number", "label": "Port Number", "schema": {"type": "int", "default": 30013, "min": 1, "max": 65535, "required": true,
-                     "show_if": [["bind_mode", "=", "published"]]}}
-                ]}}
-              ]}},
-             {"variable": "storage", "group": "Storage Configuration", "label": "",
-              "schema": {"type": "dict", "attrs": [
-                {"variable": "additional_storage", "label": "Additional Storage", "schema": {"type": "list", "default": [], "items": [
-                  {"variable": "storageEntry", "label": "Storage Entry", "schema": {"type": "dict", "attrs": [
-                    {"variable": "type", "label": "Type", "schema": {"type": "string", "required": true, "default": "ix_volume",
-                       "enum": [{"value": "host_path", "description": "Host Path"}, {"value": "ix_volume", "description": "ixVolume"}]}},
-                    {"variable": "mount_path", "label": "Mount Path", "schema": {"type": "path", "required": true}},
-                    {"variable": "host_path_config", "label": "Host Path Configuration", "schema": {"type": "dict", "show_if": [["type", "=", "host_path"]], "attrs": [
-                      {"variable": "path", "label": "Host Path", "schema": {"type": "hostpath", "required": true}}
-                    ]}}
-                  ]}}
-                ]}}
-              ]}}
-           ]
-         },
-         "values": {"TZ": "America/New_York", "network": {"host_network": false, "web_port": {"bind_mode": "published", "port_number": 30013}},
-                    "storage": {"additional_storage": []}}
-       },
-       "1.3.0": {"supported": false, "human_version": "x", "schema": {"groups": [], "questions": []}, "values": {}}
-     }}
-    """.trimIndent()
+    private val detailsJson = SchemaFixtures.jellyfin
 
     private val details = Schema.details(JSONObject(detailsJson), "community")!!
 
@@ -145,4 +102,113 @@ class SchemaTest {
         assertEquals("Line one\nLine two", Schema.cleanText("Line one</br>\nLine <b>two</b>"))
         assertNull(Schema.cleanText("  "))
     }
+}
+
+class LayoutAndYamlTest {
+    private val questions = Schema.details(org.json.JSONObject(SchemaFixtures.jellyfin), "community")!!.schema.questions
+
+    @Test
+    fun easySectionsFindStoragePortsAndRequiredInputs() {
+        val values = Schema.buildDefaults(questions)
+        val layout = Schema.layout(questions, values)
+        assertEquals(1, layout.storageLists.size)
+        assertEquals(1, layout.ports.size)
+        assertEquals(listOf<Any>("network", "web_port"), layout.ports[0].path)
+        assertTrue(layout.needsInput.isEmpty())
+
+        @Suppress("UNCHECKED_CAST")
+        val hostNet = Schema.setAt(values, listOf("network", "host_network"), true) as Map<String, Any?>
+        assertTrue(Schema.layout(questions, hostNet).ports.isEmpty()) // port hidden with host networking
+    }
+
+    @Test
+    fun hostPathEntryAndYaml() {
+        val entry = Schema.useHostPath(mapOf("type" to "ix_volume", "mount_path" to "/data"), "/mnt/tank/media")
+        assertEquals("host_path", entry["type"])
+        assertEquals("/mnt/tank/media", (entry["host_path_config"] as Map<*, *>)["path"])
+        assertEquals(false, (entry["host_path_config"] as Map<*, *>)["acl_enable"])
+
+        val yaml = app.truenasmobile.api.Yaml.write(
+            mapOf(
+                "services" to mapOf(
+                    "web" to mapOf(
+                        "image" to "nginx:latest",
+                        "ports" to listOf("8080:80"),
+                        "environment" to mapOf("TZ" to "Europe/Berlin", "DEBUG" to "true", "N" to 5L),
+                        "volumes" to listOf(mapOf("type" to "bind", "source" to "/mnt/a", "target" to "/a")),
+                    ),
+                ),
+            ),
+        )
+        val expected = """
+services:
+  web:
+    image: "nginx:latest"
+    ports:
+      - "8080:80"
+    environment:
+      TZ: Europe/Berlin
+      DEBUG: "true"
+      N: 5
+    volumes:
+      - type: bind
+        source: /mnt/a
+        target: /a
+""".trimStart()
+        assertEquals(expected, yaml)
+    }
+
+    @Test
+    fun generatedPasswords() {
+        val p = Schema.generatePassword()
+        assertEquals(24, p.length)
+        assertTrue(p.all { it.isLetterOrDigit() })
+    }
+}
+
+object SchemaFixtures {
+    val jellyfin = """
+    {"name": "jellyfin", "title": "Jellyfin", "description": "Media server", "icon_url": "https://media.sys.truenas.net/apps/jellyfin/icons/icon.png",
+     "home": "https://jellyfin.org", "latest_version": "1.2.3", "screenshots": [],
+     "versions": {
+       "1.2.3": {"supported": true, "human_version": "10.10.7_1.2.3",
+         "schema": {
+           "groups": [{"name": "Jellyfin Configuration", "description": "Configure Jellyfin"},
+                      {"name": "Network Configuration", "description": "Configure Network</br>for Jellyfin"},
+                      {"name": "Storage Configuration", "description": "Storage"}],
+           "questions": [
+             {"variable": "TZ", "group": "Jellyfin Configuration", "label": "Timezone",
+              "schema": {"type": "string", "default": "America/New_York", "required": true,
+                         "enum": [{"value": "Etc/UTC", "description": "'Etc/UTC' timezone"}, {"value": "America/New_York", "description": "'America/New_York' timezone"}]}},
+             {"variable": "network", "group": "Network Configuration", "label": "",
+              "schema": {"type": "dict", "attrs": [
+                {"variable": "host_network", "label": "Host Network", "schema": {"type": "boolean", "default": false}},
+                {"variable": "web_port", "label": "WebUI Port", "schema": {"type": "dict", "show_if": [["host_network", "=", false]], "attrs": [
+                  {"variable": "bind_mode", "label": "Port Bind Mode", "schema": {"type": "string", "default": "published",
+                     "enum": [{"value": "published", "description": "Publish"}, {"value": "", "description": "None"}]}},
+                  {"variable": "port_number", "label": "Port Number", "schema": {"type": "int", "default": 30013, "min": 1, "max": 65535, "required": true,
+                     "show_if": [["bind_mode", "=", "published"]]}}
+                ]}}
+              ]}},
+             {"variable": "storage", "group": "Storage Configuration", "label": "",
+              "schema": {"type": "dict", "attrs": [
+                {"variable": "additional_storage", "label": "Additional Storage", "schema": {"type": "list", "default": [], "items": [
+                  {"variable": "storageEntry", "label": "Storage Entry", "schema": {"type": "dict", "attrs": [
+                    {"variable": "type", "label": "Type", "schema": {"type": "string", "required": true, "default": "ix_volume",
+                       "enum": [{"value": "host_path", "description": "Host Path"}, {"value": "ix_volume", "description": "ixVolume"}]}},
+                    {"variable": "mount_path", "label": "Mount Path", "schema": {"type": "path", "required": true}},
+                    {"variable": "host_path_config", "label": "Host Path Configuration", "schema": {"type": "dict", "show_if": [["type", "=", "host_path"]], "attrs": [
+                      {"variable": "path", "label": "Host Path", "schema": {"type": "hostpath", "required": true}}
+                    ]}}
+                  ]}}
+                ]}}
+              ]}}
+           ]
+         },
+         "values": {"TZ": "America/New_York", "network": {"host_network": false, "web_port": {"bind_mode": "published", "port_number": 30013}},
+                    "storage": {"additional_storage": []}}
+       },
+       "1.3.0": {"supported": false, "human_version": "x", "schema": {"groups": [], "questions": []}, "values": {}}
+     }}
+    """.trimIndent()
 }

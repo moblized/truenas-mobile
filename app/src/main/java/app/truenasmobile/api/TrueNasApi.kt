@@ -175,7 +175,11 @@ class TrueNasApi(val rpc: RpcClient) {
 
     // ---------- Apps ----------
 
-    suspend fun apps(): List<App> = Parse.list(rpc.call("app.query")).map(Parse::app).sortedBy { it.title.lowercase() }
+    /** [hostIp] makes the app's "Open web UI" links use the address you connect with. */
+    suspend fun apps(hostIp: String? = null): List<App> {
+        val options = if (hostIp != null && !hostIp.contains(':')) mapOf("extra" to mapOf("host_ip" to hostIp)) else emptyMap()
+        return Parse.list(rpc.call("app.query", listOf(emptyList<Any>(), options))).map(Parse::app).sortedBy { it.title.lowercase() }
+    }
 
     suspend fun startApp(name: String, onProgress: (JobProgress) -> Unit) =
         runJob("app.start", listOf(name), onProgress)
@@ -247,6 +251,103 @@ class TrueNasApi(val rpc: RpcClient) {
             onProgress,
             timeoutMs = 60 * 60_000,
         )
+    }
+
+    /** Ports already used by other apps, to warn before two apps fight over one. */
+    suspend fun usedPorts(): Set<Int> = try {
+        (rpc.call("app.used_ports") as? JSONArray)?.let { a -> (0 until a.length()).mapNotNull { (a.opt(it) as? Number)?.toInt() } }?.toSet() ?: emptySet()
+    } catch (e: Exception) {
+        emptySet()
+    }
+
+    /** An installed app's current settings and the form they were made with. */
+    suspend fun appForEdit(name: String): EditableApp {
+        val r = rpc.call(
+            "app.get_instance",
+            listOf(name, mapOf("extra" to mapOf("include_app_schema" to true, "retrieve_config" to true))),
+            timeoutMs = 90_000,
+        ) as? JSONObject ?: throw RpcException(-32001, "Couldn't read $name's settings")
+        val app = Parse.app(r)
+        val vd = r.optJSONObject("version_details")
+        @Suppress("UNCHECKED_CAST")
+        val config = (Schema.toKotlin(r.opt("config")) as? Map<String, Any?>) ?: emptyMap()
+        return EditableApp(
+            app = app,
+            schema = Schema.appSchema(vd?.optJSONObject("schema")),
+            values = config,
+        )
+    }
+
+    /** Custom (Docker Compose) app settings, as the compose file the user wrote. */
+    suspend fun appComposeConfig(name: String): Map<String, Any?> {
+        @Suppress("UNCHECKED_CAST")
+        return (Schema.toKotlin(rpc.call("app.config", listOf(name))) as? Map<String, Any?>) ?: emptyMap()
+    }
+
+    suspend fun updateApp(name: String, values: Map<String, Any?>, onProgress: (JobProgress) -> Unit) {
+        runJob("app.update", listOf(name, mapOf("values" to values)), onProgress, timeoutMs = 30 * 60_000)
+    }
+
+    suspend fun updateCustomApp(name: String, yaml: String, onProgress: (JobProgress) -> Unit) {
+        runJob("app.update", listOf(name, mapOf("custom_compose_config_string" to yaml)), onProgress, timeoutMs = 30 * 60_000)
+    }
+
+    suspend fun installCustomApp(name: String, yaml: String, onProgress: (JobProgress) -> Unit) {
+        runJob(
+            "app.create",
+            listOf(mapOf("custom_app" to true, "app_name" to name, "custom_compose_config_string" to yaml)),
+            onProgress,
+            timeoutMs = 60 * 60_000,
+        )
+    }
+
+    suspend fun deleteApp(name: String, removeData: Boolean, onProgress: (JobProgress) -> Unit) {
+        runJob(
+            "app.delete",
+            listOf(name, mapOf("remove_images" to true, "remove_ix_volumes" to removeData)),
+            onProgress,
+            timeoutMs = 20 * 60_000,
+        )
+    }
+
+    suspend fun rollbackVersions(name: String): List<String> = try {
+        (rpc.call("app.rollback_versions", listOf(name)) as? JSONArray)?.let { a -> (0 until a.length()).map { a.optString(it) } }
+            ?.filter { it.isNotBlank() }?.sortedWith { x, y -> Schema.compareVersions(y, x) } ?: emptyList()
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    suspend fun rollbackApp(name: String, version: String, onProgress: (JobProgress) -> Unit) {
+        runJob("app.rollback", listOf(name, mapOf("app_version" to version, "rollback_snapshot" to true)), onProgress)
+    }
+
+    // ---------- Files (folder picker) ----------
+
+    suspend fun listDirs(path: String): List<DirEntry> {
+        val r = rpc.call(
+            "filesystem.listdir",
+            listOf(path, listOf(listOf("type", "=", "DIRECTORY")), mapOf("order_by" to listOf("name"))),
+            timeoutMs = 30_000,
+        )
+        return Parse.list(r).mapNotNull { o ->
+            val name = o.optString("name")
+            if (name.isBlank() || name.startsWith(".")) null
+            else DirEntry(
+                name = name,
+                path = o.optString("path").ifBlank { path.trimEnd('/') + "/" + name },
+                isDataset = o.optBoolean("is_mountpoint"),
+                hasAcl = o.optBoolean("acl"),
+            )
+        }.sortedBy { it.name.lowercase() }
+    }
+
+    suspend fun mkdir(path: String) {
+        rpc.call("filesystem.mkdir", listOf(mapOf("path" to path)))
+    }
+
+    /** New dataset at /mnt/<name>. APPS gives apps write access; GENERIC is plain. */
+    suspend fun createDataset(name: String, shareType: String = "GENERIC", extra: Map<String, Any?> = emptyMap()) {
+        rpc.call("pool.dataset.create", listOf(mapOf("name" to name, "type" to "FILESYSTEM", "share_type" to shareType) + extra))
     }
 
     // ---------- Alerts ----------

@@ -218,6 +218,14 @@ data class NfsShare(val id: Int, val path: String, val enabled: Boolean, val com
 
 data class JobProgress(val percent: Int?, val description: String?)
 
+data class DirEntry(val name: String, val path: String, val isDataset: Boolean, val hasAcl: Boolean)
+
+data class EditableApp(
+    val app: App,
+    val schema: AppSchema,
+    val values: Map<String, Any?>,
+)
+
 sealed interface LoginResult {
     data object Success : LoginResult
     data object OtpRequired : LoginResult

@@ -33,6 +33,8 @@ data class QSchema(
     val validChars: String?,
     val validCharsError: String?,
     val showIf: List<Any?>?,
+    val immutable: Boolean,
+    val editable: Boolean,
     val attrs: List<Question>,
     val items: List<Question>,
 ) {
@@ -128,13 +130,8 @@ object Schema {
             else -> keys.maxWithOrNull(::compareVersions)!!
         }
         val v = versions.obj(chosen) ?: return null
-        val schemaJson = v.obj("schema") ?: JSONObject()
-        val schema = AppSchema(
-            groups = schemaJson.arr("groups")?.objects()?.map { QGroup(it.str("name") ?: "", cleanText(it.str("description"))) } ?: emptyList(),
-            questions = schemaJson.arr("questions")?.objects()?.map(::question) ?: emptyList(),
-        )
-        @Suppress("UNCHECKED_CAST")
-        val defaults = (toKotlin(v.opt("values")) as? Map<String, Any?>) ?: buildDefaults(schema.questions)
+        val schema = appSchema(v.obj("schema"))
+        val defaults = buildDefaults(schema.questions)
         return CatalogAppDetails(
             name = o.str("name") ?: "",
             title = o.str("title")?.takeIf { it.isNotBlank() } ?: o.str("name") ?: "",
@@ -149,6 +146,11 @@ object Schema {
             screenshots = o.arr("screenshots")?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).takeIf { s -> s.startsWith("http") } } } ?: emptyList(),
         )
     }
+
+    fun appSchema(schemaJson: JSONObject?): AppSchema = AppSchema(
+        groups = schemaJson?.arr("groups")?.objects()?.map { QGroup(it.str("name") ?: "", cleanText(it.str("description"))) } ?: emptyList(),
+        questions = schemaJson?.arr("questions")?.objects()?.map(::question) ?: emptyList(),
+    )
 
     fun question(o: JSONObject): Question {
         val s = o.obj("schema") ?: JSONObject()
@@ -176,6 +178,8 @@ object Schema {
                 validChars = s.str("valid_chars"),
                 validCharsError = s.str("valid_chars_error"),
                 showIf = (toKotlin(s.opt("show_if")) as? List<*>)?.toList(),
+                immutable = s.bool("immutable"),
+                editable = s.bool("editable", default = true),
                 attrs = s.arr("attrs")?.objects()?.map(::question) ?: emptyList(),
                 items = s.arr("items")?.objects()?.map(::question) ?: emptyList(),
             ),
@@ -226,7 +230,7 @@ object Schema {
 
     // ------------------------------------------------------------ defaults
 
-    /** Default value of one question (used for new list items, or when the server sends no defaults). */
+    /** Default value of one question (used for new list items and when building the form's starting values). */
     fun defaultFor(q: Question): Any? {
         val s = q.schema
         if (s.default != null) return s.default
@@ -241,8 +245,42 @@ object Schema {
         }
     }
 
+    /**
+     * Starting values built from the (server-normalized) questions, so defaults such as the
+     * server's own time zone are used. Optional fields with no default are left out, like the
+     * web UI does, so the server applies its own.
+     */
     fun buildDefaults(questions: List<Question>): Map<String, Any?> =
-        LinkedHashMap<String, Any?>().also { m -> questions.forEach { q -> m[q.variable] = defaultFor(q) } }
+        LinkedHashMap<String, Any?>().also { m ->
+            questions.forEach { q ->
+                val s = q.schema
+                if (s.default != null || s.isDict || s.isList || s.required || s.nullable) m[q.variable] = defaultFor(q)
+            }
+        }
+
+    /** Fills in anything missing from [values] (e.g. new fields after an app update) without touching what's set. */
+    fun withDefaults(questions: List<Question>, values: Map<*, *>?): Map<String, Any?> {
+        val out = LinkedHashMap<String, Any?>()
+        values?.forEach { (k, v) -> out[k.toString()] = v }
+        for (q in questions) {
+            val cur = out[q.variable]
+            if (!out.containsKey(q.variable)) {
+                val s = q.schema
+                if (s.default != null || s.isDict || s.isList || s.required || s.nullable) out[q.variable] = defaultFor(q)
+            } else if (q.schema.isDict && cur is Map<*, *>) {
+                out[q.variable] = withDefaults(q.schema.attrs, cur)
+            }
+        }
+        return out
+    }
+
+    private val passwordChars = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+    /** Strong random password without characters that break database URLs. */
+    fun generatePassword(length: Int = 24): String {
+        val rnd = java.security.SecureRandom()
+        return (1..length).map { passwordChars[rnd.nextInt(passwordChars.length)] }.joinToString("")
+    }
 
     // ------------------------------------------------------------ value tree
 
@@ -393,6 +431,107 @@ object Schema {
                 }
             }
         }
+        return out
+    }
+
+
+    // ------------------------------------------------------------ simple layout
+
+    /** A question placed in the easy part of the form, with where its value lives. */
+    data class Placed(val q: Question, val path: List<Any>)
+
+    /**
+     * Splits an app's questions into the few things most people set (storage, ports, GPU, and
+     * required fields with no value yet) and everything else, which goes under Advanced.
+     */
+    data class Layout(
+        val needsInput: List<Placed>,
+        val storage: List<Placed>,
+        val storageLists: List<Placed>,
+        val ports: List<Placed>,
+        val gpu: Placed?,
+        /** Paths shown in the easy sections, so Advanced can skip them. */
+        val claimed: Set<List<Any>>,
+    )
+
+    private val storageTypes = setOf("host_path", "ix_volume")
+
+    fun isStorage(q: Question): Boolean =
+        q.schema.isDict && q.schema.attrs.any { a -> a.variable == "type" && a.schema.enum?.any { it.value in storageTypes } == true }
+
+    fun isStorageList(q: Question): Boolean =
+        q.schema.isList && q.schema.items.firstOrNull()?.let(::isStorage) == true
+
+    fun isPort(q: Question): Boolean =
+        q.schema.isDict && q.schema.attrs.any { it.variable == "port_number" && it.schema.isNumber }
+
+    fun isGpu(q: Question): Boolean =
+        q.schema.isDict && q.schema.attrs.any { it.variable == "use_all_gpus" || it.variable == "nvidia_gpu_selection" }
+
+    fun layout(questions: List<Question>, values: Map<*, *>): Layout {
+        val needs = mutableListOf<Placed>()
+        val storage = mutableListOf<Placed>()
+        val lists = mutableListOf<Placed>()
+        val ports = mutableListOf<Placed>()
+        var gpu: Placed? = null
+        val claimed = mutableSetOf<List<Any>>()
+
+        fun walk(qs: List<Question>, parent: List<Any>, siblings: Map<*, *>?) {
+            for (q in qs) {
+                val s = q.schema
+                if (s.hidden || !visible(s.showIf, siblings)) continue
+                val path = parent + q.variable
+                val v = siblings?.get(q.variable)
+                when {
+                    isStorage(q) -> { storage += Placed(q, path); claimed += path }
+                    isStorageList(q) -> { lists += Placed(q, path); claimed += path }
+                    isPort(q) -> { ports += Placed(q, path); claimed += path }
+                    isGpu(q) && gpu == null -> {
+                        if (s.attrs.any { !it.schema.hidden }) { gpu = Placed(q, path); claimed += path }
+                    }
+                    s.isDict -> walk(s.attrs, path, v as? Map<*, *>)
+                    s.isList -> Unit
+                    s.required && (v == null || v == "") -> { needs += Placed(q, path); claimed += path }
+                }
+            }
+        }
+        walk(questions, emptyList(), values)
+        return Layout(needs, storage, lists, ports, gpu, claimed)
+    }
+
+    /** Internal service passwords (database, cache) nobody needs to type, so they're filled in for you. */
+    fun isInternalSecret(q: Question): Boolean {
+        if (!q.schema.private) return false
+        val v = q.variable.lowercase()
+        return listOf("db_", "database", "redis", "postgres", "mariadb", "mysql", "valkey", "secret_key", "jwt").any { it in v }
+    }
+
+    /** Pre-fills internal passwords with strong random ones. */
+    @Suppress("UNCHECKED_CAST")
+    fun fillGeneratedSecrets(questions: List<Question>, values: Map<String, Any?>): Map<String, Any?> {
+        var out: Any? = values
+        layout(questions, values).needsInput.forEach { p ->
+            if (isInternalSecret(p.q)) out = setAt(out, p.path, generatePassword())
+        }
+        return out as Map<String, Any?>
+    }
+
+    /** Only the top-level answers the app defines (drops context keys the server adds to saved configs). */
+    fun onlyQuestions(questions: List<Question>, values: Map<String, Any?>): Map<String, Any?> {
+        val keys = questions.map { it.variable }.toSet()
+        return values.filterKeys { it in keys }
+    }
+
+    /** Sets a storage entry to use a folder on the server. */
+    fun useHostPath(entry: Map<*, *>?, path: String): Map<String, Any?> {
+        @Suppress("UNCHECKED_CAST")
+        var out = (setAt(entry ?: emptyMap<String, Any?>(), listOf("type"), "host_path") as Map<String, Any?>)
+        val hp = (out["host_path_config"] as? Map<*, *>)
+        out = setAt(out, listOf("host_path_config"), LinkedHashMap<String, Any?>().apply {
+            hp?.forEach { (k, v) -> put(k.toString(), v) }
+            if (!containsKey("acl_enable")) put("acl_enable", false)
+            put("path", path)
+        }) as Map<String, Any?>
         return out
     }
 

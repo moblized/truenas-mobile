@@ -5,9 +5,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.truenasmobile.api.Alert
 import app.truenasmobile.api.App
+import app.truenasmobile.api.AppSchema
 import app.truenasmobile.api.AppStat
 import app.truenasmobile.api.CatalogApp
-import app.truenasmobile.api.CatalogAppDetails
 import app.truenasmobile.api.Dataset
 import app.truenasmobile.api.Disk
 import app.truenasmobile.api.JobProgress
@@ -16,11 +16,13 @@ import app.truenasmobile.api.NfsShare
 import app.truenasmobile.api.Parse
 import app.truenasmobile.api.Pool
 import app.truenasmobile.api.Realtime
+import app.truenasmobile.api.Schema
 import app.truenasmobile.api.ServiceEntry
 import app.truenasmobile.api.SmbShare
 import app.truenasmobile.api.Snapshot
 import app.truenasmobile.api.SystemInfo
 import app.truenasmobile.api.TrueNasApi
+import app.truenasmobile.api.Yaml
 import app.truenasmobile.data.AuthMethod
 import app.truenasmobile.data.Connector
 import app.truenasmobile.data.SecretBox
@@ -77,11 +79,28 @@ enum class AppAction(val verb: String, val doneVerb: String) {
     PULL_IMAGES("Pulling images for", "updated"),
 }
 
-sealed interface DetailsState {
-    data object Loading : DetailsState
-    data class Ready(val details: CatalogAppDetails) : DetailsState
-    data class Failed(val message: String) : DetailsState
+sealed interface FormLoad {
+    data object Loading : FormLoad
+    data class Ready(val data: AppFormData) : FormLoad
+    data class Text(val text: String) : FormLoad
+    data class Failed(val message: String) : FormLoad
 }
+
+/** What the install / edit form shows and starts from. */
+data class AppFormData(
+    val editing: Boolean,
+    val appName: String,
+    val title: String,
+    val iconUrl: String?,
+    val description: String,
+    val home: String?,
+    val versionLabel: String,
+    val schema: AppSchema,
+    val values: Map<String, Any?>,
+    val catalogName: String?,
+    val train: String?,
+    val version: String?,
+)
 
 /** An install in progress (or just finished/failed) from the install screen. */
 data class InstallRun(
@@ -126,7 +145,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val serverTest = MutableStateFlow<ServerTest>(ServerTest.Idle)
     val catalog = MutableStateFlow<List<CatalogApp>?>(null)
     val catalogError = MutableStateFlow<String?>(null)
-    val installDetails = MutableStateFlow<DetailsState>(DetailsState.Loading)
+    val appForm = MutableStateFlow<FormLoad>(FormLoad.Loading)
+    val yaml = MutableStateFlow<FormLoad>(FormLoad.Loading)
+    val usedPorts = MutableStateFlow<Set<Int>>(emptySet())
     val install = MutableStateFlow<InstallRun?>(null)
 
     /** Operations in progress, keyed like "app:jellyfin" → "Stopping… 40%". */
@@ -324,7 +345,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             c == "reporting.realtime" -> (e.fields as? JSONObject)?.let(Parse::realtime)?.let(::pushRealtime)
             c == "app.stats" -> appStats.value = Parse.appStats(e.fields)
             c == "alert.list" -> debounce("alerts") { load(alerts) { it.alerts() }; markAlertsSeen() }
-            c == "app.query" -> debounce("apps") { load(apps) { it.apps() } }
+            c == "app.query" -> debounce("apps") { load(apps) { it.apps(hostIp()) } }
             c == "pool.query" -> debounce("pools") { load(pools) { it.pools() } }
             c == "service.query" -> debounce("services") { load(services) { it.services() } }
             c.startsWith("app.container_log_follow") -> onLogEvent(e)
@@ -362,7 +383,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun refreshAllInternal(): Unit = coroutineScope {
         launch { load(system) { it.systemInfo() } }
         launch { load(pools) { it.pools() } }
-        launch { load(apps) { it.apps() } }
+        launch { load(apps) { it.apps(hostIp()) } }
         launch {
             load(alerts) { it.alerts() }
             markAlertsSeen()
@@ -420,6 +441,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // ------------------------------------------------------------------ app catalog
 
+    private fun hostIp(): String? = _active.value?.endpoint?.bareHost
+
     fun loadCatalog(force: Boolean = false) {
         if (!force && catalog.value != null) return
         val a = api ?: return
@@ -435,65 +458,202 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private var detailsKey: String? = null
+    private var formKey: String? = null
 
-    fun loadInstallDetails(name: String, train: String) {
-        val key = "$train/$name"
-        if (detailsKey == key && installDetails.value is DetailsState.Ready) return
-        detailsKey = key
-        installDetails.value = DetailsState.Loading
-        val a = api
-        if (a == null) {
-            installDetails.value = DetailsState.Failed("Not connected to the server")
+    /** Loads the install form for a catalog app. */
+    fun loadInstallForm(name: String, train: String) {
+        val key = "install:$train/$name"
+        if (formKey == key && appForm.value is FormLoad.Ready) return
+        formKey = key
+        appForm.value = FormLoad.Loading
+        val a = api ?: run {
+            appForm.value = FormLoad.Failed("Not connected to the server")
             return
         }
         viewModelScope.launch {
-            installDetails.value = try {
-                DetailsState.Ready(a.catalogAppDetails(name, train))
+            appForm.value = try {
+                val d = a.catalogAppDetails(name, train)
+                val taken = apps.value?.map { it.name }?.toSet() ?: emptySet()
+                usedPorts.value = a.usedPorts()
+                FormLoad.Ready(
+                    AppFormData(
+                        editing = false,
+                        appName = Schema.suggestName(d.name, taken),
+                        title = d.title,
+                        iconUrl = d.iconUrl,
+                        description = d.description,
+                        home = d.home,
+                        versionLabel = "Version ${d.humanVersion} · ${d.train}",
+                        schema = d.schema,
+                        values = Schema.fillGeneratedSecrets(d.schema.questions, d.defaults),
+                        catalogName = d.name,
+                        train = d.train,
+                        version = d.version,
+                    ),
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                DetailsState.Failed(Connector.friendly(e))
+                FormLoad.Failed(Connector.friendly(e))
             }
         }
     }
 
-    fun installApp(details: CatalogAppDetails, appName: String, values: Map<String, Any?>) {
-        val a = api
-        if (a == null) {
-            toast("Not connected to the server")
+    /** Loads an installed app's current settings into the same form. */
+    fun loadEditForm(appName: String) {
+        val key = "edit:$appName"
+        formKey = key
+        appForm.value = FormLoad.Loading
+        val a = api ?: run {
+            appForm.value = FormLoad.Failed("Not connected to the server")
             return
         }
+        viewModelScope.launch {
+            appForm.value = try {
+                val e = a.appForEdit(appName)
+                usedPorts.value = a.usedPorts()
+                if (e.schema.questions.isEmpty()) {
+                    FormLoad.Failed("This app's settings can't be edited here. Use the web UI.")
+                } else {
+                    FormLoad.Ready(
+                        AppFormData(
+                            editing = true,
+                            appName = appName,
+                            title = e.app.title,
+                            iconUrl = e.app.iconUrl,
+                            description = e.app.description ?: "",
+                            home = null,
+                            versionLabel = "Version ${e.app.humanVersion}",
+                            schema = e.schema,
+                            values = Schema.withDefaults(
+                                e.schema.questions,
+                                Schema.onlyQuestions(e.schema.questions, e.values),
+                            ),
+                            catalogName = null,
+                            train = null,
+                            version = null,
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                FormLoad.Failed(Connector.friendly(e))
+            }
+        }
+    }
+
+    /** Installs (or saves changes to) the app in the form. Progress shows in [install]. */
+    fun submitAppForm(form: AppFormData, appName: String, values: Map<String, Any?>) {
+        val a = api ?: return toast("Not connected to the server")
         if (install.value?.running == true) return
-        install.value = InstallRun(appName, "Starting install…")
+        val verb = if (form.editing) "Saving" else "Installing"
+        install.value = InstallRun(appName, "$verb…")
+        val clean = Schema.onlyQuestions(form.schema.questions, values)
         viewModelScope.launch {
             try {
-                a.installApp(appName, details.name, details.train, details.version, values) { p ->
-                    val head = progressLabel("Installing", p)
-                    val detail = p.description?.trim()?.takeIf { it.isNotEmpty() && !it.equals("Installing", true) }
+                val progress: (JobProgress) -> Unit = { p ->
+                    val head = progressLabel(verb, p)
+                    val detail = p.description?.trim()?.takeIf { it.isNotEmpty() && !it.equals(verb, true) }
                     install.value = InstallRun(appName, if (detail != null) "$head\n$detail" else head)
                 }
-                install.value = InstallRun(appName, "Installed", done = true)
-                toast("${details.title} installed as $appName")
-                catalog.update { list ->
-                    list?.map { if (it.name == details.name && it.train == details.train) it.copy(installed = true) else it }
+                if (form.editing) {
+                    a.updateApp(appName, clean, progress)
+                    toast("${form.title} saved and restarted")
+                } else {
+                    a.installApp(appName, form.catalogName!!, form.train!!, form.version!!, clean, progress)
+                    toast("${form.title} installed as $appName")
+                    catalog.update { list ->
+                        list?.map { if (it.name == form.catalogName && it.train == form.train) it.copy(installed = true) else it }
+                    }
                 }
-                load(apps) { it.apps() }
+                install.value = InstallRun(appName, "Done", done = true)
+                load(apps) { it.apps(hostIp()) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                val msg = if (e is DisconnectedException) {
-                    "Lost the connection while installing. The install may still finish; check the Apps tab in a minute."
-                } else {
-                    Connector.friendly(e)
-                }
-                install.value = InstallRun(appName, "", error = msg)
+                install.value = InstallRun(appName, "", error = jobError(e, form.editing))
             }
         }
     }
+
+    private fun jobError(e: Exception, editing: Boolean): String =
+        if (e is DisconnectedException) {
+            if (editing) "Lost the connection while saving. The change may still finish; check the app in a minute."
+            else "Lost the connection while installing. The install may still finish; check the Apps tab in a minute."
+        } else {
+            Connector.friendly(e)
+        }
 
     fun clearInstall() {
         if (install.value?.running != true) install.value = null
+    }
+
+    // Custom apps (Docker Compose YAML)
+
+    fun loadYaml(appName: String) {
+        yaml.value = FormLoad.Loading
+        val a = api ?: run {
+            yaml.value = FormLoad.Failed("Not connected to the server")
+            return
+        }
+        viewModelScope.launch {
+            yaml.value = try {
+                FormLoad.Text(Yaml.write(a.appComposeConfig(appName)))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                FormLoad.Failed(Connector.friendly(e))
+            }
+        }
+    }
+
+    fun submitYaml(appName: String, text: String, editing: Boolean) {
+        val a = api ?: return toast("Not connected to the server")
+        if (install.value?.running == true) return
+        val verb = if (editing) "Saving" else "Installing"
+        install.value = InstallRun(appName, "$verb…")
+        viewModelScope.launch {
+            try {
+                val progress: (JobProgress) -> Unit = { p -> install.value = InstallRun(appName, progressLabel(verb, p)) }
+                if (editing) a.updateCustomApp(appName, text, progress) else a.installCustomApp(appName, text, progress)
+                toast(if (editing) "$appName saved and restarted" else "$appName installed")
+                install.value = InstallRun(appName, "Done", done = true)
+                load(apps) { it.apps(hostIp()) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                install.value = InstallRun(appName, "", error = jobError(e, editing))
+            }
+        }
+    }
+
+    fun deleteApp(app: App, removeData: Boolean, onDone: () -> Unit) {
+        perform("app:${app.name}", "Deleting", "${app.title} deleted", after = { a -> apps.value = a.apps(hostIp()) }) { a, p ->
+            a.deleteApp(app.name, removeData, p)
+            onDone()
+        }
+    }
+
+    suspend fun rollbackVersions(appName: String): List<String> = api?.rollbackVersions(appName) ?: emptyList()
+
+    fun rollbackApp(app: App, version: String) {
+        perform("app:${app.name}", "Rolling back", "${app.title} rolled back to $version", after = { a -> apps.value = a.apps(hostIp()) }) { a, p ->
+            a.rollbackApp(app.name, version, p)
+        }
+    }
+
+    // Folder picker
+
+    private fun requireApi(): TrueNasApi = api ?: throw DisconnectedException("Not connected to the server")
+
+    suspend fun listDirs(path: String) = requireApi().listDirs(path)
+
+    suspend fun mkdir(path: String) = requireApi().mkdir(path)
+
+    suspend fun createDataset(name: String, forApps: Boolean) {
+        requireApi().createDataset(name, if (forApps) "APPS" else "GENERIC")
+        datasets.value?.let { loadDatasets(force = true) }
     }
 
     private fun markAlertsSeen() {
@@ -507,6 +667,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun toast(msg: String) {
         _messages.tryEmit(msg)
     }
+
+    fun showMessage(msg: String) = toast(msg)
 
     private fun setBusy(key: String, label: String?) {
         busy.update { if (label == null) it - key else it + (key to label) }
@@ -557,7 +719,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             key = "app:${app.name}",
             verb = action.verb,
             done = "${app.title} ${action.doneVerb}",
-            after = { a -> apps.value = a.apps() },
+            after = { a -> apps.value = a.apps(hostIp()) },
         ) { a, progress ->
             when (action) {
                 AppAction.START -> a.startApp(app.name, progress)
@@ -602,7 +764,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 if (failed.isEmpty()) "Updated $done apps"
                 else "Updated $done of ${list.size}. Failed: ${failed.joinToString()}",
             )
-            load(apps) { it.apps() }
+            load(apps) { it.apps(hostIp()) }
         }
     }
 
