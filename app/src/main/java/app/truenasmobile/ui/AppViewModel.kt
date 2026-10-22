@@ -191,7 +191,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         var attempt = 0
         var otpError: String? = null
         while (true) {
-            if (attempt == 0) conn.value = ConnState.Connecting
+            conn.value = if (attempt == 0) ConnState.Connecting else ConnState.Retrying(lastError, 0)
             val secret = profile.secret()
             if (secret == null) {
                 conn.value = ConnState.Failed("The saved password or key couldn't be read. Edit the server and enter it again.", true)
@@ -465,9 +465,41 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Updates apps one at a time, so the server isn't pulling and redeploying everything at once. */
     fun updateAllApps() {
-        val list = apps.value?.filter { it.hasUpdate } ?: return
-        list.forEach { app -> appAction(app, if (app.upgradeAvailable) AppAction.UPGRADE else AppAction.PULL_IMAGES) }
+        val a = api ?: return toast("Not connected to the server")
+        val list = apps.value?.filter { it.hasUpdate && !busy.value.containsKey("app:${it.name}") } ?: return
+        if (list.isEmpty()) return
+        list.forEach { setBusy("app:${it.name}", "Waiting to update…") }
+        viewModelScope.launch {
+            var done = 0
+            val failed = mutableListOf<String>()
+            for (app in list) {
+                val key = "app:${app.name}"
+                try {
+                    if (app.upgradeAvailable) {
+                        setBusy(key, "${AppAction.UPGRADE.verb}…")
+                        a.upgradeApp(app.name) { p -> setBusy(key, progressLabel(AppAction.UPGRADE.verb, p)) }
+                    } else {
+                        setBusy(key, "${AppAction.PULL_IMAGES.verb}…")
+                        a.pullImages(app.name) { p -> setBusy(key, progressLabel(AppAction.PULL_IMAGES.verb, p)) }
+                    }
+                    done++
+                } catch (e: CancellationException) {
+                    list.forEach { setBusy("app:${it.name}", null) }
+                    throw e
+                } catch (e: Exception) {
+                    failed += app.title
+                } finally {
+                    setBusy(key, null)
+                }
+            }
+            toast(
+                if (failed.isEmpty()) "Updated $done apps"
+                else "Updated $done of ${list.size}. Failed: ${failed.joinToString()}",
+            )
+            load(apps) { it.apps() }
+        }
     }
 
     fun scrub(pool: Pool, action: String) {

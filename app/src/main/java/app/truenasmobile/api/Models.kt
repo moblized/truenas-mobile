@@ -41,8 +41,19 @@ data class Realtime(
     /** Memory used by services/apps (not counting the ZFS cache, which is given back on demand). */
     val memServices: Long get() = (memTotal - memAvailable - arcSize).coerceAtLeast(0)
     val memFree: Long get() = (memTotal - memServices - arcSize).coerceAtLeast(0)
-    val rxTotal: Double get() = interfaces.filter { it.up }.sumOf { it.rxBytesPerSec }
-    val txTotal: Double get() = interfaces.filter { it.up }.sumOf { it.txBytesPerSec }
+    val rxTotal: Double get() = countedLinks.sumOf { it.rxBytesPerSec }
+    val txTotal: Double get() = countedLinks.sumOf { it.txBytesPerSec }
+
+    /**
+     * Links whose traffic is added up. When a bridge or bond is up, its member NICs carry the
+     * same packets, so only the bridge/bond is counted.
+     */
+    val countedLinks: List<IfaceStat>
+        get() {
+            val up = interfaces.filter { it.up }
+            val aggregates = up.filter { it.name.startsWith("br") || it.name.startsWith("bond") }
+            return aggregates.ifEmpty { up }
+        }
 }
 
 data class ScanInfo(

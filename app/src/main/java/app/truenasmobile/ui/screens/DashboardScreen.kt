@@ -287,7 +287,7 @@ private fun NetworkCard(rt: Realtime?, rx: List<Float>, tx: List<Float>) {
                     .height(64.dp)
                     .padding(vertical = 6.dp),
             )
-            val up = rt?.interfaces?.filter { it.up } ?: emptyList()
+            val up = rt?.countedLinks ?: emptyList()
             Text(
                 if (up.isEmpty()) "No active links" else up.joinToString(" · ") { i ->
                     if (i.speedMbps > 0) "${i.name} ${linkSpeed(i.speedMbps)}" else i.name

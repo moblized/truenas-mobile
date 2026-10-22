@@ -328,7 +328,7 @@ private fun ConnectionBanner(vm: AppViewModel, nav: Nav) {
             )
         }
         is ConnState.Retrying -> BannerRow(
-            text = "${c.message} Retrying in ${c.inSeconds}s.",
+            text = if (c.inSeconds > 0) "${c.message} Retrying in ${c.inSeconds}s." else "${c.message} Reconnecting…",
             color = status.warn,
             actionLabel = "Retry now",
             onAction = vm::reconnect,
