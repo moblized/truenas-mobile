@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -38,6 +39,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.truenasmobile.api.Snapshot
+import app.truenasmobile.api.rollbackSnapshot
+import app.truenasmobile.ui.theme.AppColors
 import app.truenasmobile.ui.Format
 import app.truenasmobile.ui.ListPadding
 import app.truenasmobile.ui.LocalChrome
@@ -60,6 +63,7 @@ fun SnapshotsScreen(dataset: String) {
     val snapshots = if (forDataset == dataset) loaded else null
     var creating by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<Snapshot?>(null) }
+    var rolling by remember { mutableStateOf<Snapshot?>(null) }
     val taking = busy["snap:$dataset"]
 
     ScreenScaffold(
@@ -90,7 +94,7 @@ fun SnapshotsScreen(dataset: String) {
                         )
                     }
                     items(snapshots, key = { it.id }) { snap ->
-                        SnapshotRow(snap, deletingNow = busy.containsKey("snapdel:${snap.id}")) { deleting = snap }
+                        SnapshotRow(snap, deletingNow = busy.containsKey("snapdel:${snap.id}") || busy.containsKey("snaproll:${snap.id}"), onRollback = { rolling = snap }) { deleting = snap }
                     }
                 }
             }
@@ -106,6 +110,38 @@ fun SnapshotsScreen(dataset: String) {
             onDismiss = { creating = false },
         )
     }
+    rolling?.let { snap ->
+        var destroyNewer by remember { mutableStateOf(false) }
+        val newer = snapshots?.count { it.createTxg > snap.createTxg } ?: 0
+        AlertDialog(
+            onDismissRequest = { rolling = null },
+            icon = { Icon(Icons.Outlined.History, contentDescription = null, tint = AppColors.status.warn) },
+            title = { Text("Roll back to ${snap.name}?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "$dataset goes back to how it was at this snapshot. Changes made since then are lost.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    if (newer > 0) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = destroyNewer, onCheckedChange = { destroyNewer = it })
+                            Text("Delete the $newer newer snapshot${if (newer == 1) "" else "s"} too (required)", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = newer == 0 || destroyNewer, onClick = {
+                    vm.act("snaproll:${snap.id}", "Rolling back", "Rolled back to ${snap.name}", after = { vm.loadSnapshots(dataset) }) { a, _ ->
+                        a.rollbackSnapshot(snap.id, destroyNewer)
+                    }
+                    rolling = null
+                }) { Text("Roll back", color = AppColors.status.bad) }
+            },
+            dismissButton = { TextButton(onClick = { rolling = null }) { Text("Cancel") } },
+        )
+    }
     deleting?.let { snap ->
         ConfirmDialog(
             title = "Delete snapshot?",
@@ -119,7 +155,7 @@ fun SnapshotsScreen(dataset: String) {
 }
 
 @Composable
-private fun SnapshotRow(snap: Snapshot, deletingNow: Boolean, onDelete: () -> Unit) {
+private fun SnapshotRow(snap: Snapshot, deletingNow: Boolean, onRollback: () -> Unit, onDelete: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -143,6 +179,7 @@ private fun SnapshotRow(snap: Snapshot, deletingNow: Boolean, onDelete: () -> Un
         if (deletingNow) {
             SmallSpinner(Modifier.padding(12.dp))
         } else {
+            IconButton(onClick = onRollback) { Icon(Icons.Outlined.History, contentDescription = "Roll back to this snapshot") }
             IconButton(onClick = onDelete) { Icon(Icons.Outlined.Delete, contentDescription = "Delete") }
         }
     }

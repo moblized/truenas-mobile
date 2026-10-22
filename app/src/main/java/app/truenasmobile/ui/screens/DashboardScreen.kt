@@ -21,11 +21,16 @@ import androidx.compose.material.icons.outlined.DeveloperBoard
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Lan
 import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.PendingActions
+import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -78,9 +83,23 @@ fun DashboardScreen() {
     val rebootReasons by vm.rebootReasons.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
 
+    val runningJobs by vm.runningJobs.collectAsStateWithLifecycle()
     ScreenScaffold(
         title = system?.hostname ?: active?.displayName ?: "Dashboard",
         subtitle = system?.let { versionLabel(it.version) },
+        actions = {
+            // Like the web UI's task manager: shows when something is running.
+            IconButton(onClick = { nav.push(Route.Jobs) }) {
+                if (runningJobs > 0) {
+                    BadgedBox(badge = { Badge { Text(runningJobs.toString()) } }) {
+                        Icon(Icons.Outlined.PendingActions, contentDescription = "Jobs")
+                    }
+                } else {
+                    Icon(Icons.Outlined.PendingActions, contentDescription = "Jobs")
+                }
+            }
+            IconButton(onClick = { nav.push(Route.Reporting) }) { Icon(Icons.Outlined.QueryStats, contentDescription = "Reporting") }
+        },
     ) {
         PullToRefreshBox(isRefreshing = refreshing, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
             LazyVerticalGrid(

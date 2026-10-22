@@ -20,12 +20,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Album
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SdStorage
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.ViewInAr
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -38,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,7 +65,19 @@ import app.truenasmobile.ui.theme.AppColors
 @Composable
 fun StorageScreen() {
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    ScreenScaffold(title = "Storage") {
+    var creating by remember { mutableStateOf(false) }
+    ScreenScaffold(
+        title = "Storage",
+        fab = {
+            if (tab == 1) {
+                ExtendedFloatingActionButton(
+                    onClick = { creating = true },
+                    icon = { Icon(Icons.Outlined.CreateNewFolder, contentDescription = null) },
+                    text = { Text("Add dataset") },
+                )
+            }
+        },
+    ) {
         Column(Modifier.fillMaxSize()) {
             PrimaryTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
                 listOf("Pools", "Datasets", "Disks").forEachIndexed { i, label ->
@@ -78,6 +93,7 @@ fun StorageScreen() {
             }
         }
     }
+    if (creating) CreateDatasetDialog(parent = null, onDismiss = { creating = false })
 }
 
 @Composable
@@ -138,7 +154,7 @@ private fun DatasetsTab() {
                 item { EmptyState(Icons.Outlined.Folder, if (all.isEmpty()) "No datasets" else "Nothing matches \"$query\"") }
             }
             items(shown, key = { it.id }) { ds ->
-                DatasetRow(ds, indent = query.isBlank()) { chrome.nav.push(Route.Snapshots(ds.id)) }
+                DatasetRow(ds, indent = query.isBlank()) { chrome.nav.push(Route.DatasetDetail(ds.id)) }
             }
         }
     }
@@ -206,7 +222,7 @@ private fun DatasetRow(ds: Dataset, indent: Boolean, onClick: () -> Unit) {
                 )
             }
         }
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Snapshots", tint = MaterialTheme.colorScheme.outline)
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Details", tint = MaterialTheme.colorScheme.outline)
     }
 }
 

@@ -26,13 +26,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Dashboard
-import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.WarningAmber
@@ -94,6 +94,21 @@ import app.truenasmobile.ui.screens.ServersScreen
 import app.truenasmobile.ui.screens.ServicesScreen
 import app.truenasmobile.ui.screens.SettingsScreen
 import app.truenasmobile.ui.screens.SharesScreen
+import app.truenasmobile.ui.screens.ShareEditScreen
+import app.truenasmobile.ui.screens.DatasetDetailScreen
+import app.truenasmobile.ui.screens.ProtectionScreen
+import app.truenasmobile.ui.screens.NetworkScreen
+import app.truenasmobile.ui.screens.UsersScreen
+import app.truenasmobile.ui.screens.UserEditScreen
+import app.truenasmobile.ui.screens.ApiKeysScreen
+import app.truenasmobile.ui.screens.CertificatesScreen
+import app.truenasmobile.ui.screens.VirtualizationScreen
+import app.truenasmobile.ui.screens.ReportingScreen
+import app.truenasmobile.ui.screens.UpdateScreen
+import app.truenasmobile.ui.screens.BootEnvScreen
+import app.truenasmobile.ui.screens.JobsScreen
+import app.truenasmobile.ui.screens.AuditScreen
+import app.truenasmobile.ui.screens.ShellScreen
 import app.truenasmobile.ui.screens.SnapshotsScreen
 import app.truenasmobile.ui.screens.StorageScreen
 import app.truenasmobile.ui.theme.AppColors
@@ -103,7 +118,7 @@ enum class Tab(val label: String, val icon: ImageVector, val selectedIcon: Image
     Storage("Storage", Icons.Outlined.Storage, Icons.Filled.Storage),
     Apps("Apps", Icons.Outlined.Apps, Icons.Filled.Apps),
     Alerts("Alerts", Icons.Outlined.Notifications, Icons.Filled.Notifications),
-    More("More", Icons.Outlined.MoreHoriz, Icons.Filled.MoreHoriz),
+    More("Menu", Icons.Outlined.Menu, Icons.Filled.Menu),
 }
 
 sealed interface Route {
@@ -117,6 +132,21 @@ sealed interface Route {
     data class Yaml(val appName: String?) : Route
     data object Services : Route
     data object Shares : Route
+    data class ShareEdit(val kind: String, val id: Int?) : Route
+    data class DatasetDetail(val id: String) : Route
+    data object Protection : Route
+    data object Network : Route
+    data object Users : Route
+    data class UserEdit(val id: Int?) : Route
+    data object ApiKeys : Route
+    data object Certificates : Route
+    data object Virtualization : Route
+    data object Reporting : Route
+    data object Update : Route
+    data object BootEnvs : Route
+    data object Jobs : Route
+    data object Audit : Route
+    data class Shell(val appName: String?, val containerId: String?, val title: String) : Route
     data object Power : Route
     data object Servers : Route
     data class ServerEdit(val id: String?) : Route
@@ -236,6 +266,21 @@ fun AppRoot(vm: AppViewModel, openAlertsSignal: Int) {
                         is Route.Yaml -> YamlScreen(target.appName)
                         Route.Services -> ServicesScreen()
                         Route.Shares -> SharesScreen()
+                        is Route.ShareEdit -> ShareEditScreen(target.kind, target.id)
+                        is Route.DatasetDetail -> DatasetDetailScreen(target.id)
+                        Route.Protection -> ProtectionScreen()
+                        Route.Network -> NetworkScreen()
+                        Route.Users -> UsersScreen()
+                        is Route.UserEdit -> UserEditScreen(target.id)
+                        Route.ApiKeys -> ApiKeysScreen()
+                        Route.Certificates -> CertificatesScreen()
+                        Route.Virtualization -> VirtualizationScreen()
+                        Route.Reporting -> ReportingScreen()
+                        Route.Update -> UpdateScreen()
+                        Route.BootEnvs -> BootEnvScreen()
+                        Route.Jobs -> JobsScreen()
+                        Route.Audit -> AuditScreen()
+                        is Route.Shell -> ShellScreen(target.appName, target.containerId, target.title)
                         Route.Power -> PowerScreen()
                         Route.Servers -> ServersScreen()
                         is Route.ServerEdit -> ServerEditScreen(vm, existingId = target.id, firstRun = false)

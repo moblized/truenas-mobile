@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <link rel="stylesheet" href="xterm.css">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #0f1418; overflow: hidden; }
+    #t { position: absolute; top: 4px; left: 4px; right: 4px; bottom: 4px; }
+  </style>
+</head>
+<body>
+<div id="t"></div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script>
+  // Shell for TrueNAS Mobile. Output arrives from the app as base64; keystrokes go back through Bridge.
+  var term = new Terminal({
+    cursorBlink: true,
+    fontSize: 13,
+    fontFamily: 'monospace',
+    scrollback: 5000,
+    convertEol: false,
+    theme: {
+      background: '#0f1418', foreground: '#dfe3e7', cursor: '#85cfff', selectionBackground: '#004c6d',
+      black: '#1b2024', red: '#ff6b6b', green: '#5dd68c', yellow: '#ffb74d', blue: '#64b5f6',
+      magenta: '#b39ddb', cyan: '#4dd0b8', white: '#dfe3e7',
+      brightBlack: '#5a646b', brightRed: '#ff8a8a', brightGreen: '#7fe3a4', brightYellow: '#ffcc80',
+      brightBlue: '#90caf9', brightMagenta: '#d1c4e9', brightCyan: '#80e0cc', brightWhite: '#ffffff'
+    }
+  });
+  var fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(document.getElementById('t'));
+  try { fit.fit(); } catch (e) {}
+
+  term.onData(function (d) { Bridge.input(d); });
+  term.onBinary(function (d) { Bridge.input(d); });
+  term.onResize(function (s) { Bridge.resize(s.cols, s.rows); });
+  window.addEventListener('resize', function () { try { fit.fit(); } catch (e) {} });
+
+  window.termWrite = function (b64) {
+    var bin = atob(b64);
+    var arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    term.write(arr);
+  };
+  window.termMessage = function (text) { term.write('\r\n\x1b[90m' + text + '\x1b[0m\r\n'); };
+  window.termFocus = function () { term.focus(); };
+  window.termFontSize = function (n) { term.options.fontSize = n; try { fit.fit(); } catch (e) {} };
+
+  Bridge.ready(term.cols, term.rows);
+  term.focus();
+</script>
+</body>
+</html>

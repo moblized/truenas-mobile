@@ -15,6 +15,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.PendingActions
+import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Lan
+import androidx.compose.material.icons.outlined.Policy
+import androidx.compose.material.icons.outlined.QueryStats
+import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.SystemUpdateAlt
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.FolderShared
 import androidx.compose.material.icons.outlined.Info
@@ -73,11 +86,35 @@ fun MoreScreen() {
     val servers by vm.servers.collectAsStateWithLifecycle()
     val active by vm.active.collectAsStateWithLifecycle()
     val system by vm.system.collectAsStateWithLifecycle()
+    val running by vm.runningJobs.collectAsStateWithLifecycle()
     val uri = LocalUriHandler.current
 
-    ScreenScaffold(title = "More") {
+    // Same order as the TrueNAS web UI's menu.
+    ScreenScaffold(title = "Menu") {
         LazyColumn(contentPadding = ListPadding, modifier = Modifier.fillMaxSize()) {
-            item { SectionHeader("Server") }
+            item { SectionHeader("Storage & sharing") }
+            item { NavRow(Icons.Outlined.Storage, "Storage", "Pools, datasets and disks", onClick = { nav.selectTab(app.truenasmobile.ui.Tab.Storage) }) }
+            item { NavRow(Icons.Outlined.FolderShared, "Shares", "SMB and NFS shares", onClick = { nav.push(Route.Shares) }) }
+            item { NavRow(Icons.Outlined.Backup, "Data protection", "Snapshot, scrub, replication and backup tasks", onClick = { nav.push(Route.Protection) }) }
+
+            item { SectionHeader("Network & accounts") }
+            item { NavRow(Icons.Outlined.Lan, "Network", "Interfaces, DNS and routes", onClick = { nav.push(Route.Network) }) }
+            item { NavRow(Icons.Outlined.Group, "Users and groups", "Local accounts", onClick = { nav.push(Route.Users) }) }
+            item { NavRow(Icons.Outlined.Key, "API keys", "Keys for apps and scripts", onClick = { nav.push(Route.ApiKeys) }) }
+            item { NavRow(Icons.Outlined.Verified, "Certificates", "TLS certificates and expiry", onClick = { nav.push(Route.Certificates) }) }
+
+            item { SectionHeader("Apps & virtualization") }
+            item { NavRow(Icons.Outlined.Computer, "Virtualization", "Virtual machines and containers", onClick = { nav.push(Route.Virtualization) }) }
+
+            item { SectionHeader("Monitoring") }
+            item { NavRow(Icons.Outlined.QueryStats, "Reporting", "CPU, memory, network and disk history", onClick = { nav.push(Route.Reporting) }) }
+            item {
+                NavRow(Icons.Outlined.PendingActions, "Jobs", if (running > 0) "$running running now" else "Recent tasks", onClick = { nav.push(Route.Jobs) })
+            }
+            item { NavRow(Icons.Outlined.Policy, "Audit log", "Sign-ins and changes", onClick = { nav.push(Route.Audit) }) }
+
+            item { SectionHeader("System") }
+            item { NavRow(Icons.Outlined.SystemUpdateAlt, "Update", system?.let { versionLabel(it.version) }, onClick = { nav.push(Route.Update) }) }
             item {
                 NavRow(
                     Icons.Outlined.Tune,
@@ -86,14 +123,16 @@ fun MoreScreen() {
                     onClick = { nav.push(Route.Services) },
                 )
             }
-            item { NavRow(Icons.Outlined.FolderShared, "Shares", "Turn SMB and NFS shares on or off", onClick = { nav.push(Route.Shares) }) }
+            item { NavRow(Icons.Outlined.Terminal, "Shell", "Command line on the server", onClick = { nav.push(Route.Shell(null, null, "Shell")) }) }
+            item { NavRow(Icons.Outlined.History, "Boot environments", "Go back to an earlier TrueNAS version", onClick = { nav.push(Route.BootEnvs) }) }
             item { NavRow(Icons.Outlined.PowerSettingsNew, "Restart or shut down", system?.hostname, onClick = { nav.push(Route.Power) }) }
             active?.endpoint?.let { ep ->
                 item {
                     NavRow(Icons.Outlined.OpenInBrowser, "Open web UI", ep.webUrl, onClick = { runCatching { uri.openUri(ep.webUrl) } })
                 }
             }
-            item { SectionHeader("App") }
+
+            item { SectionHeader("This app") }
             item {
                 NavRow(
                     Icons.Outlined.Dns,
@@ -185,100 +224,6 @@ private fun ServiceRow(
             Checkbox(checked = svc.enable, onCheckedChange = onBoot, enabled = !savingBoot)
             Text("Start automatically on boot", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    }
-}
-
-// ---------------------------------------------------------------- Shares
-
-@Composable
-fun SharesScreen() {
-    val vm = LocalChrome.current.vm
-    LaunchedEffect(Unit) { vm.loadShares() }
-    val smb by vm.smbShares.collectAsStateWithLifecycle()
-    val nfs by vm.nfsShares.collectAsStateWithLifecycle()
-    val busy by vm.busy.collectAsStateWithLifecycle()
-    val services by vm.services.collectAsStateWithLifecycle()
-    val refreshing by vm.refreshing.collectAsStateWithLifecycle()
-    val smbRunning = services?.firstOrNull { it.service == "cifs" }?.running
-    val nfsRunning = services?.firstOrNull { it.service == "nfs" }?.running
-
-    ScreenScaffold(title = "Shares", showBack = true) {
-        PullToRefreshBox(isRefreshing = refreshing, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
-            LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
-                item { ShareHeader("SMB (Windows, macOS)", smbRunning) }
-                val smbList = smb
-                when {
-                    smbList == null -> item { LoadingBox() }
-                    smbList.isEmpty() -> item { Hint("No SMB shares") }
-                    else -> items(smbList, key = { "smb-${it.id}" }) { share ->
-                        ShareRow(
-                            title = share.name,
-                            subtitle = listOfNotNull(share.path, share.comment).joinToString(" · "),
-                            enabled = share.enabled,
-                            working = busy.containsKey("smb:${share.id}"),
-                        ) { vm.setSmbEnabled(share, it) }
-                    }
-                }
-                item { ShareHeader("NFS (Linux, Unix)", nfsRunning) }
-                val nfsList = nfs
-                when {
-                    nfsList == null -> item { LoadingBox() }
-                    nfsList.isEmpty() -> item { Hint("No NFS shares") }
-                    else -> items(nfsList, key = { "nfs-${it.id}" }) { share ->
-                        ShareRow(
-                            title = share.path.substringAfterLast('/').ifBlank { share.path },
-                            subtitle = listOfNotNull(share.path, share.comment).joinToString(" · "),
-                            enabled = share.enabled,
-                            working = busy.containsKey("nfs:${share.id}"),
-                        ) { vm.setNfsEnabled(share, it) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ShareHeader(title: String, serviceRunning: Boolean?) {
-    Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.fillMaxWidth()) {
-        SectionHeader(title, Modifier.weight(1f))
-        if (serviceRunning == false) {
-            Text(
-                "Service stopped",
-                style = MaterialTheme.typography.labelMedium,
-                color = AppColors.status.warn,
-                modifier = Modifier.padding(bottom = 6.dp, end = 4.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun Hint(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
-    )
-}
-
-@Composable
-private fun ShareRow(title: String, subtitle: String, enabled: Boolean, working: Boolean, onToggle: (Boolean) -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-        if (working) SmallSpinner(Modifier.padding(end = 12.dp))
-        Switch(checked = enabled, onCheckedChange = onToggle, enabled = !working)
     }
 }
 

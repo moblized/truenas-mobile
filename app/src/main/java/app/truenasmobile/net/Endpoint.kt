@@ -14,6 +14,9 @@ data class Endpoint(
     /** JSON-RPC 2.0 WebSocket API, TrueNAS 25.04 and newer. */
     val wsUrl: String get() = "${if (secure) "wss" else "ws"}://$hostPort/api/current"
 
+    /** The web shell (System → Shell in the web UI). */
+    val shellUrl: String get() = "${if (secure) "wss" else "ws"}://$hostPort/websocket/shell/"
+
     /** The web UI, for "open in browser". */
     val webUrl: String get() = "${if (secure) "https" else "http"}://$hostPort"
 

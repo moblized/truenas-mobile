@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -169,7 +170,10 @@ fun AppDetailScreen(name: String) {
                 if (app.containers.isNotEmpty()) {
                     item { SectionHeader("Containers") }
                     items(app.containers, key = { it.id }) { c ->
-                        ContainerRow(c) {
+                        ContainerRow(
+                            c,
+                            onShell = if (c.state == "running") ({ chrome.nav.push(Route.Shell(app.name, c.id, c.serviceName.ifBlank { app.title })) }) else null,
+                        ) {
                             chrome.nav.push(Route.Logs(app.name, c.id, c.serviceName.ifBlank { app.title }))
                         }
                     }
@@ -390,7 +394,7 @@ private fun Stat(label: String, value: String, modifier: Modifier, color: androi
 }
 
 @Composable
-private fun ContainerRow(c: AppContainer, onLogs: () -> Unit) {
+private fun ContainerRow(c: AppContainer, onShell: (() -> Unit)?, onLogs: () -> Unit) {
     val stateColor = when (c.state) {
         "running" -> AppColors.status.good
         "exited", "dead" -> AppColors.status.bad
@@ -430,10 +434,19 @@ private fun ContainerRow(c: AppContainer, onLogs: () -> Unit) {
                 )
             }
         }
-        TextButton(onClick = onLogs) {
-            Icon(Icons.Outlined.Code, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-            Text("Logs")
+        Column(horizontalAlignment = Alignment.End) {
+            TextButton(onClick = onLogs) {
+                Icon(Icons.Outlined.Code, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text("Logs")
+            }
+            if (onShell != null) {
+                TextButton(onClick = onShell) {
+                    Icon(Icons.Outlined.Terminal, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                    Text("Shell")
+                }
+            }
         }
     }
 }

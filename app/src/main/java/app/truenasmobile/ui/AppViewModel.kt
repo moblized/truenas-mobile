@@ -22,6 +22,7 @@ import app.truenasmobile.api.SmbShare
 import app.truenasmobile.api.Snapshot
 import app.truenasmobile.api.SystemInfo
 import app.truenasmobile.api.TrueNasApi
+import app.truenasmobile.api.runningJobCount
 import app.truenasmobile.api.Yaml
 import app.truenasmobile.data.AuthMethod
 import app.truenasmobile.data.Connector
@@ -152,6 +153,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Operations in progress, keyed like "app:jellyfin" → "Stopping… 40%". */
     val busy = MutableStateFlow<Map<String, String>>(emptyMap())
+    /** Jobs running on the server right now (like the web UI's task manager badge). */
+    val runningJobs = MutableStateFlow(0)
     val refreshing = MutableStateFlow(false)
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 16)
@@ -312,7 +315,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             coroutineScope {
                 launch { sessionApi.rpc.events.collect { onEvent(it) } }
                 launch {
-                    for (event in listOf("reporting.realtime", "app.stats", "alert.list", "app.query", "pool.query", "service.query")) {
+                    for (event in listOf("reporting.realtime", "app.stats", "alert.list", "app.query", "pool.query", "service.query", "core.get_jobs")) {
                         sessionApi.subscribe(event)
                     }
                 }
@@ -348,6 +351,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             c == "app.query" -> debounce("apps") { load(apps) { it.apps(hostIp()) } }
             c == "pool.query" -> debounce("pools") { load(pools) { it.pools() } }
             c == "service.query" -> debounce("services") { load(services) { it.services() } }
+            c == "core.get_jobs" -> debounce("jobs") { load(runningJobs) { it.runningJobCount() } }
             c.startsWith("app.container_log_follow") -> onLogEvent(e)
         }
     }
@@ -390,6 +394,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         launch { load(services) { it.services() } }
         launch { load(rebootReasons) { it.rebootRequiredReasons() } }
+        launch { load(runningJobs) { it.runningJobCount() } }
         if (datasets.value != null) launch { load(datasets) { it.datasets() } }
         if (disks.value != null) launch { load(disks) { it.disks() } }
         if (smbShares.value != null) launch { load(smbShares) { it.smbShares() } }
@@ -642,6 +647,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             a.rollbackApp(app.name, version, p)
         }
     }
+
+    // Screens that load their own data
+
+    /** Runs [block] with the live connection. Throws when not connected. */
+    suspend fun <T> withApi(block: suspend (TrueNasApi) -> T): T = block(requireApi())
+
+    /** An action from a screen: shows progress under [key], a message when done or failed, then [after]. */
+    fun act(
+        key: String,
+        verb: String,
+        done: String?,
+        after: () -> Unit = {},
+        block: suspend (TrueNasApi, (JobProgress) -> Unit) -> Unit,
+    ) = perform(key, verb, done, after = { after() }, block = block)
 
     // Folder picker
 

@@ -98,8 +98,20 @@ class TrueNasApi(val rpc: RpcClient) {
 
     // ---------- System ----------
 
+    /** Set after [systemInfo]; used where field names changed between releases. */
+    @Volatile
+    var version: String = ""
+        private set
+
+    /** True when the server runs at least TrueNAS [major].[minor] (25.04 → 25, 4). */
+    fun atLeast(major: Int, minor: Int): Boolean {
+        val m = Regex("(\\d{2})\\.(\\d{1,2})").find(version) ?: return true
+        val (ma, mi) = m.destructured
+        return ma.toInt() > major || (ma.toInt() == major && mi.toInt() >= minor)
+    }
+
     suspend fun systemInfo(): SystemInfo =
-        Parse.systemInfo(rpc.call("system.info") as? JSONObject ?: JSONObject())
+        Parse.systemInfo(rpc.call("system.info") as? JSONObject ?: JSONObject()).also { version = it.version }
 
     suspend fun rebootRequiredReasons(): List<String> = try {
         val r = rpc.call("system.reboot.info") as? JSONObject
@@ -457,7 +469,7 @@ class TrueNasApi(val rpc: RpcClient) {
             ?: err
 
     /** Tries each method in turn, moving on only when the server says the method doesn't exist. */
-    private suspend fun callFirst(vararg candidates: Pair<String, List<Any?>>, timeoutMs: Long = 60_000): Any? {
+    suspend fun callFirst(vararg candidates: Pair<String, List<Any?>>, timeoutMs: Long = 60_000): Any? {
         var last: RpcException? = null
         for ((method, params) in candidates) {
             try {
