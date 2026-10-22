@@ -22,6 +22,15 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.runtime.remember
+import app.truenasmobile.api.catalogSettings
+import app.truenasmobile.api.refreshCatalog
+import app.truenasmobile.api.setCatalogTrains
+import app.truenasmobile.ui.components.SmallSpinner
+import app.truenasmobile.ui.components.rememberLoad
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -65,6 +74,7 @@ fun CatalogScreen() {
     var query by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf<String?>(null) }
     var train by rememberSaveable { mutableStateOf<String?>(null) }
+    var settings by remember { mutableStateOf(false) }
 
     LaunchedEffect(conn) { if (conn == ConnState.Connected) vm.loadCatalog() }
 
@@ -74,6 +84,7 @@ fun CatalogScreen() {
         subtitle = all?.let { "${it.size} apps in the catalog" },
         showBack = true,
         actions = {
+            IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, contentDescription = "Catalog settings") }
             TextButton(onClick = { chrome.nav.push(Route.Yaml(null)) }) {
                 Icon(Icons.Outlined.Code, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
@@ -169,6 +180,66 @@ fun CatalogScreen() {
             }
         }
     }
+    if (settings) CatalogSettingsDialog(onDone = { changed ->
+        settings = false
+        if (changed) vm.loadCatalog(force = true)
+    })
+}
+
+@Composable
+private fun CatalogSettingsDialog(onDone: (Boolean) -> Unit) {
+    val vm = LocalChrome.current.vm
+    val loaded = rememberLoad("catalog-settings") { it.catalogSettings() }
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    var chosen by remember { mutableStateOf<Set<String>?>(null) }
+    val working = busy["catalog"]
+    AlertDialog(
+        onDismissRequest = { onDone(false) },
+        title = { Text("App catalog") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val cs = loaded.value
+                if (cs == null) {
+                    SmallSpinner()
+                } else {
+                    val current = chosen ?: cs.preferredTrains.toSet()
+                    Text("Which trains to show apps from:", style = MaterialTheme.typography.bodyMedium)
+                    cs.allTrains.forEach { t ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = t in current, onCheckedChange = { on -> chosen = if (on) current + t else (current - t).ifEmpty { current } })
+                            Column {
+                                Text(t.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    when (t) {
+                                        "stable" -> "Official apps maintained by TrueNAS"
+                                        "community" -> "Apps maintained by the community (Navidrome, Immich, …)"
+                                        "enterprise" -> "Apps for TrueNAS Enterprise"
+                                        "test" -> "Unfinished apps for testing"
+                                        else -> ""
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (working != null) Text(working, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = working == null && loaded.value != null, onClick = {
+                val cs = loaded.value ?: return@TextButton
+                val trains = (chosen ?: cs.preferredTrains.toSet()).toList()
+                if (trains.toSet() == cs.preferredTrains.toSet()) {
+                    vm.act("catalog", "Refreshing catalog", "Catalog refreshed", after = { onDone(true) }) { a, p -> a.refreshCatalog(p) }
+                } else {
+                    vm.act("catalog", "Updating catalog", "Catalog updated", after = { onDone(true) }) { a, p -> a.setCatalogTrains(trains, p) }
+                }
+            }) { Text(if (chosen != null && chosen != loaded.value?.preferredTrains?.toSet()) "Save" else "Refresh catalog") }
+        },
+        dismissButton = { TextButton(onClick = { onDone(false) }) { Text("Close") } },
+    )
 }
 
 private fun prettyCategory(c: String): String =

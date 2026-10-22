@@ -136,7 +136,7 @@ fun UsersScreen() {
                                     if (u.smb) "SMB" else null,
                                     if (u.twoFactor) "2FA" else null,
                                 ).joinToString(" · "),
-                                onClick = if (u.immutable && u.username != "root") null else ({ chrome.nav.push(Route.UserEdit(u.id)) }),
+                                onClick = if (u.immutable) null else ({ chrome.nav.push(Route.UserEdit(u.id)) }),
                                 leading = { Icon(if (admin) Icons.Outlined.AdminPanelSettings else Icons.Outlined.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                 trailing = {
                                     when {

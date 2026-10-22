@@ -4,14 +4,19 @@ A fast, native Android app for managing a TrueNAS SCALE server from your phone.
 
 ## What it does
 
-- **Dashboard**: live CPU (with temperature), memory split into services / ZFS cache / free, network and disk throughput, pool health and capacity, app summary, and a single "everything's healthy" line.
-- **Storage**: pools with health, capacity and full vdev/disk topology with read/write/checksum errors; start, pause, resume or stop scrubs. Datasets with usage, and per-dataset snapshots (list, take, delete). Disks with model, serial, pool and live temperatures.
-- **Apps**: every installed app with icon, state, live CPU/RAM; start, stop, restart, update (or pull new images for custom apps), "Update all", open the app's web UI, and stream container logs live.
-- **Alerts**: active and dismissed alerts by severity; dismiss, restore, dismiss all.
-- **Services**: start/stop (SMB, NFS, SSH, UPS…) and toggle start-on-boot.
-- **Shares**: turn SMB and NFS shares on or off.
-- **Power**: restart or shut down, with a reason for the audit log.
-- **Background alerts** (optional): checks about every 15 minutes and notifies you about new warnings or critical alerts.
+Everything in the TrueNAS web UI's menu, made for a phone:
+
+- **Dashboard**: live CPU (with temperature), memory (services / ZFS cache / free), network and disk throughput, pool health, apps, running jobs.
+- **Storage**: pools with vdev/disk topology and error counts, scrubs; datasets with details, edit (quota, compression, sync, atime, dedup, read-only), add dataset or zvol, delete, lock/unlock; snapshots (take, roll back, delete); disks with temperatures.
+- **Apps**: start, stop, restart, update, update all, edit settings, delete, roll back, live logs, a shell inside containers. Install from the catalog with an easy form (folder picker for storage, ports with conflict warnings, generated passwords, advanced options tucked away), or from Docker Compose YAML. Choose catalog trains.
+- **Shares**: add, edit and delete SMB and NFS shares.
+- **Data protection**: periodic snapshot and scrub schedules (add/edit); run, stop, enable/disable and delete replication, cloud sync, rsync and TrueCloud tasks.
+- **Network**: interfaces with addresses and live traffic, hostname/DNS/gateway, static routes.
+- **Credentials**: users and groups, API keys, certificates.
+- **Virtualization**: start, shut down, restart and power off VMs and containers.
+- **Reporting**: CPU, memory, ARC, network, disk and temperature history (1 hour to 1 year).
+- **System**: updates, services, shell, boot environments, jobs, audit log, restart/shut down.
+- **Alerts**: dismiss/restore, and optional background notifications.
 - Several servers, light/dark/pure-black themes, Material You colours, phone and tablet layouts.
 
 ## Requirements
@@ -43,4 +48,4 @@ Server addresses and credentials stay on the phone, encrypted with a key held in
 
 ## Building
 
-Open in Android Studio, or `./gradlew assembleRelease`. Kotlin, Jetpack Compose, Material 3, OkHttp, Coil, WorkManager.
+Open in Android Studio, or `./gradlew assembleRelease`. Kotlin, Jetpack Compose, Material 3, OkHttp, Coil, WorkManager. The shell uses [xterm.js](https://xtermjs.org) (MIT).

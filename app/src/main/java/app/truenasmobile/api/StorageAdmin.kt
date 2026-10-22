@@ -225,7 +225,6 @@ suspend fun TrueNasApi.saveNfsShare(
         "networks" to networks,
         "hosts" to hosts,
         "maproot_user" to maprootUser?.ifBlank { null },
-        "maproot_group" to if (maprootUser.isNullOrBlank()) null else maprootUser,
     )
     if (id == null) rpc.call("sharing.nfs.create", listOf(data), timeoutMs = 90_000)
     else rpc.call("sharing.nfs.update", listOf(id, data), timeoutMs = 90_000)
@@ -441,4 +440,28 @@ suspend fun TrueNasApi.saveSnapshotTask(
 suspend fun TrueNasApi.saveScrubTask(id: Int?, poolId: Int, thresholdDays: Int, schedule: Cron, enabled: Boolean) {
     val data = mapOf("pool" to poolId, "threshold" to thresholdDays, "schedule" to schedule.toMap(), "enabled" to enabled)
     if (id == null) rpc.call("pool.scrub.create", listOf(data)) else rpc.call("pool.scrub.update", listOf(id, data))
+}
+
+// ====================================================================== app catalog settings
+
+data class CatalogSettings(val preferredTrains: List<String>, val allTrains: List<String>)
+
+suspend fun TrueNasApi.catalogSettings(): CatalogSettings {
+    val c = rpc.call("catalog.config") as? JSONObject ?: JSONObject()
+    val preferred = c.arr("preferred_trains")?.strings() ?: listOf("stable")
+    val trains = try {
+        (rpc.call("catalog.trains") as? JSONArray)?.strings() ?: emptyList()
+    } catch (e: Exception) {
+        emptyList()
+    }
+    return CatalogSettings(preferred, (trains + preferred + listOf("stable", "community")).distinct())
+}
+
+suspend fun TrueNasApi.setCatalogTrains(trains: List<String>, onProgress: (JobProgress) -> Unit) {
+    rpc.call("catalog.update", listOf(mapOf("preferred_trains" to trains)), timeoutMs = 120_000)
+    runJob("catalog.sync", emptyList(), onProgress, timeoutMs = 15 * 60_000)
+}
+
+suspend fun TrueNasApi.refreshCatalog(onProgress: (JobProgress) -> Unit) {
+    runJob("catalog.sync", emptyList(), onProgress, timeoutMs = 15 * 60_000)
 }
