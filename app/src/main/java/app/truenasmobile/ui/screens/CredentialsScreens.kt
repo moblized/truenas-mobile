@@ -348,8 +348,9 @@ private fun UserForm(acc: Accounts, existing: LocalUser?, shells: List<Pair<Stri
             }
             Spacer(Modifier.weight(1f))
             Button(enabled = !working && passwordOk && (!creating || usernameOk), onClick = {
+                // TrueNAS makes a folder named after the user inside the chosen one.
                 val createHome = home.isNotBlank() && creating
-                val homePath = if (createHome) home.trimEnd('/') + "/" + username else home
+                val homePath = home.trimEnd('/')
                 vm.act("user", "Saving", if (creating) "User $username created" else "User saved", after = {}) { a, _ ->
                     a.saveUser(
                         existing?.id, username, fullName, email, password.ifEmpty { null }, groups.toList(), smb,

@@ -557,7 +557,15 @@ private fun StorageEntry(q: Question, path: List<Any>, ctx: FormCtx) {
         val configQ = q.schema.attrs.firstOrNull { it.variable == configVar }
         val sub = ctx.copy(skip = setOf(path + "type", folderPath))
         val rest = q.schema.attrs.filter { it.variable != "type" && it.variable != configVar }
-        val needsConfig = type == "cifs" || type == "nfs"
+        // Show the type's settings straight away when something there must be filled in
+        // (an SMB server, or a dataset name for an extra automatic volume).
+        val configValues = if (configQ != null) Schema.getAt(ctx.values, path + configQ.variable) as? Map<*, *> else null
+        val missing = configQ?.schema?.attrs?.any { a ->
+            !a.schema.hidden && a.schema.required && Schema.visible(a.schema.showIf, configValues) &&
+                (path + configQ.variable + a.variable) != folderPath &&
+                configValues?.get(a.variable).let { it == null || it == "" }
+        } == true
+        val needsConfig = type == "cifs" || type == "nfs" || missing
         val hasMore = (configQ != null && renderable(configQ, path + configQ.variable, sub)) || rest.any { renderable(it, path + it.variable, sub) }
         if (hasMore) {
             if (needsConfig || more) {

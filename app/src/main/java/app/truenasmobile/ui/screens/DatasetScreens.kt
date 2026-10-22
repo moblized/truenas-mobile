@@ -89,6 +89,7 @@ fun DatasetDetailScreen(id: String) {
     var unlocking by remember { mutableStateOf(false) }
     val d = loaded.value
     val children = all?.filter { it.id.startsWith("$id/") } ?: emptyList()
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm.loadDatasets() }
 
     ScreenScaffold(
         title = id.substringAfterLast('/'),
