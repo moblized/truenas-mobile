@@ -522,6 +522,88 @@ object Schema {
         return values.filterKeys { it in keys }
     }
 
+    /**
+     * The values as the server should receive them. Like the web UI, leaves out fields whose
+     * show_if doesn't match (such as the folder settings of storage set to Automatic): the server
+     * still checks any value it's sent, so an empty hidden path fails with "Empty value not allowed".
+     * Also leaves out empty optional paths, URLs and IP addresses, which the server rejects the same way.
+     */
+    fun forSubmit(questions: List<Question>, values: Map<String, Any?>): Map<String, Any?> =
+        pruneDict(questions, onlyQuestions(questions, values))
+
+    private fun pruneDict(questions: List<Question>, values: Map<*, *>): Map<String, Any?> {
+        val byName = questions.associateBy { it.variable }
+        // show_if is evaluated against the sibling values, with defaults for missing ones (as the server does).
+        val ctx = LinkedHashMap<Any?, Any?>(values)
+        questions.forEach { q -> if (q.variable !in ctx && q.schema.default != null) ctx[q.variable] = q.schema.default }
+        val out = LinkedHashMap<String, Any?>()
+        for ((k, v) in values) {
+            val key = k as? String ?: continue
+            val q = byName[key]
+            if (q == null) {
+                out[key] = v
+                continue
+            }
+            val s = q.schema
+            if (!visible(s.showIf, ctx)) continue
+            if (v is String && v.isEmpty() && !s.required && (s.isPath || s.type == "uri" || s.type == "ipaddr")) {
+                if (s.nullable) out[key] = null
+                continue
+            }
+            out[key] = pruneValue(q, v)
+        }
+        return out
+    }
+
+    private fun pruneValue(q: Question, v: Any?): Any? {
+        val s = q.schema
+        return when {
+            s.isDict && s.attrs.isNotEmpty() && v is Map<*, *> -> pruneDict(s.attrs, v)
+            s.isList && v is List<*> -> {
+                val item = s.items.firstOrNull() ?: return v
+                v.map { pruneValue(item, it) }
+            }
+            else -> v
+        }
+    }
+
+    /**
+     * Rewrites server errors such as "values.storage.data.host_path_config.acl.path: Empty value not allowed"
+     * with the form's own labels ("Data Storage › Host Path: Empty value not allowed").
+     */
+    fun describeErrors(questions: List<Question>, message: String): String =
+        message.lines().joinToString("\n") { line ->
+            val m = ERROR_PATH.matchEntire(line.trim()) ?: return@joinToString line
+            val label = labelFor(questions, m.groupValues[1].split('.')) ?: return@joinToString line
+            "$label: ${m.groupValues[2]}"
+        }
+
+    private val ERROR_PATH = Regex("""^(?:\[\w+]\s*)?(?:app_(?:create|update)\.)?values\.([\w.\-]+):\s*(.+)$""")
+
+    /** The labels along [path], shortened to the entry and the field (e.g. "Data Storage › Host Path"). */
+    fun labelFor(questions: List<Question>, path: List<String>): String? {
+        val labels = mutableListOf<String>()
+        var current = questions
+        var item: Question? = null
+        for (seg in path) {
+            val index = seg.toIntOrNull()
+            if (index != null) {
+                val list = item ?: return null
+                if (labels.isNotEmpty()) labels[labels.size - 1] = "${labels.last()} ${index + 1}"
+                val itemQ = list.schema.items.firstOrNull() ?: return null
+                current = itemQ.schema.attrs
+                item = itemQ
+                continue
+            }
+            val q = current.firstOrNull { it.variable == seg } ?: return null
+            labels += q.label.ifBlank { q.variable }
+            item = q
+            current = q.schema.attrs
+        }
+        if (labels.isEmpty()) return null
+        return if (labels.size == 1) labels[0] else "${labels[if (labels.size >= 3) 1 else 0]} › ${labels.last()}"
+    }
+
     /** Sets a storage entry to use a folder on the server. */
     fun useHostPath(entry: Map<*, *>?, path: String): Map<String, Any?> {
         @Suppress("UNCHECKED_CAST")

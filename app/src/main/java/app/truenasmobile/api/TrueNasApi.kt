@@ -2,6 +2,7 @@ package app.truenasmobile.api
 
 import app.truenasmobile.net.RpcClient
 import app.truenasmobile.net.RpcException
+import app.truenasmobile.net.arr
 import app.truenasmobile.net.int
 import app.truenasmobile.net.jsonOrNull
 import app.truenasmobile.net.obj
@@ -450,6 +451,7 @@ class TrueNasApi(val rpc: RpcClient) {
                 when (job.str("state")) {
                     "SUCCESS" -> return job.opt("result").jsonOrNull()
                     "FAILED", "ABORTED" -> {
+                        validationErrors(job)?.let { throw RpcException(-32001, it) }
                         val err = job.str("error")
                             ?: job.obj("exc_info")?.str("repr")
                             ?: "The task failed"
@@ -461,6 +463,20 @@ class TrueNasApi(val rpc: RpcClient) {
             wait = (wait * 3 / 2).coerceAtMost(2_000)
         }
         throw RpcException(-32001, "Still running on the server. Check back in a minute.")
+    }
+
+    /** All the problems of a job that failed validation, one "field: message" per line. */
+    private fun validationErrors(job: JSONObject): String? {
+        val exc = job.obj("exc_info") ?: return null
+        if (exc.str("type") != "VALIDATION") return null
+        val extra = exc.arr("extra") ?: return null
+        val lines = (0 until extra.length()).mapNotNull { i ->
+            val e = extra.optJSONArray(i) ?: return@mapNotNull null
+            val field = e.optString(0).takeIf { it.isNotBlank() && it != "null" }
+            val msg = e.optString(1).takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            if (field != null) "$field: $msg" else msg
+        }.distinct()
+        return lines.takeIf { it.isNotEmpty() }?.joinToString("\n")
     }
 
     private fun cleanJobError(err: String): String =

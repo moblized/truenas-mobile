@@ -554,7 +554,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (install.value?.running == true) return
         val verb = if (form.editing) "Saving" else "Installing"
         install.value = InstallRun(appName, "$verb…")
-        val clean = Schema.onlyQuestions(form.schema.questions, values)
+        val clean = Schema.forSubmit(form.schema.questions, values)
         viewModelScope.launch {
             try {
                 val progress: (JobProgress) -> Unit = { p ->
@@ -577,7 +577,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                install.value = InstallRun(appName, "", error = jobError(e, form.editing))
+                install.value = InstallRun(appName, "", error = Schema.describeErrors(form.schema.questions, jobError(e, form.editing)))
             }
         }
     }
