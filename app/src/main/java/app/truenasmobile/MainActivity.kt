@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
@@ -26,6 +28,9 @@ class MainActivity : ComponentActivity() {
     /** Bumped when a notification asks to open the Alerts tab. */
     private var openAlertsSignal by mutableIntStateOf(0)
 
+    /** Whether the app is showing its dark theme, so the home-screen icon can match. */
+    private var darkTheme: Boolean? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -41,6 +46,14 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val settings by vm.settings.collectAsStateWithLifecycle()
+            val systemDark = isSystemInDarkTheme()
+            SideEffect {
+                darkTheme = when (settings.theme) {
+                    ThemeMode.SYSTEM -> systemDark
+                    ThemeMode.LIGHT -> false
+                    ThemeMode.DARK -> true
+                }
+            }
             AppTheme(
                 mode = settings.theme,
                 dynamicColor = settings.dynamicColor,
@@ -64,6 +77,8 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         vm.onBackground()
+        // Switch to the dark (or light) app icon once the app is out of sight.
+        if (!isChangingConfigurations) darkTheme?.let { AppIcon.sync(this, it) }
     }
 
     companion object {

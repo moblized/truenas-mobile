@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark-mode version of ic_launcher_foreground, on a black background. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- bays -->
+    <path android:fillColor="#FF173B50"
+        android:pathData="M35,33h38a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-38a4,4 0 0 1 -4,-4v-6a4,4 0 0 1 4,-4z" />
+    <path android:fillColor="#FF173B50"
+        android:pathData="M35,50h38a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-38a4,4 0 0 1 -4,-4v-6a4,4 0 0 1 4,-4z" />
+    <path android:fillColor="#FF173B50"
+        android:pathData="M35,67h38a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-38a4,4 0 0 1 -4,-4v-6a4,4 0 0 1 4,-4z" />
+    <!-- vent slots -->
+    <path android:strokeColor="#FF8FC9E8" android:strokeWidth="2.4" android:strokeLineCap="round"
+        android:pathData="M38,40 L54,40 M38,57 L54,57 M38,74 L54,74" />
+    <!-- status lights -->
+    <path android:fillColor="#FF3DDC97"
+        android:pathData="M68,40m-3,0a3,3 0 1 1 6,0a3,3 0 1 1 -6,0" />
+    <path android:fillColor="#FF3DDC97"
+        android:pathData="M68,57m-3,0a3,3 0 1 1 6,0a3,3 0 1 1 -6,0" />
+    <path android:fillColor="#FF2EB8F0"
+        android:pathData="M68,74m-3,0a3,3 0 1 1 6,0a3,3 0 1 1 -6,0" />
+</vector>
