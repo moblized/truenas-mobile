@@ -1,6 +1,16 @@
 package app.truenasmobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.outlined.AddLink
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import app.truenasmobile.api.AppLink
+import app.truenasmobile.api.AppLinks
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -88,7 +98,9 @@ fun AppDetailScreen(name: String) {
     val stats by vm.appStats.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val server by vm.active.collectAsStateWithLifecycle()
+    val links by vm.appLinks.collectAsStateWithLifecycle()
     val app = apps?.firstOrNull { it.name == name }
+    var editingLink by remember { mutableStateOf<AppLink?>(null) }
     var confirm by remember { mutableStateOf<AppAction?>(null) }
     var showNotes by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -150,20 +162,15 @@ fun AppDetailScreen(name: String) {
                         onAction = { action -> if (action == AppAction.START) vm.appAction(app, action) else confirm = action },
                     )
                 }
-                if (app.portals.isNotEmpty()) {
-                    item {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            app.portals.forEach { (label, url) ->
-                                OutlinedButton(onClick = {
-                                    runCatching { uri.openUri(portalUrl(url, host)) }
-                                }) {
-                                    Icon(Icons.Outlined.OpenInBrowser, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                                    Text("Open $label")
-                                }
-                            }
-                        }
-                    }
+                item {
+                    WebLinksCard(
+                        links = AppLinks.resolve(app.portals, links[app.name], host),
+                        onOpen = { link ->
+                            runCatching { uri.openUri(link.url) }.onFailure { vm.showMessage("Couldn't open ${link.url}") }
+                        },
+                        onEdit = { editingLink = it },
+                        onAdd = { editingLink = AppLink(AppLinks.DEFAULT_LABEL, "", null, false) },
+                    )
                 }
                 val st = stats[app.name]
                 if (app.isRunning && st != null) item { StatsCard(st) }
@@ -194,6 +201,20 @@ fun AppDetailScreen(name: String) {
                     }
                 }
             }
+        }
+    }
+
+    editingLink?.let { link ->
+        if (app != null) {
+            EditLinkDialog(
+                appName = app.name,
+                link = link,
+                onSave = { url ->
+                    vm.setAppLink(app.name, link.label, url)
+                    editingLink = null
+                },
+                onDismiss = { editingLink = null },
+            )
         }
     }
 
@@ -284,10 +305,127 @@ private fun DeleteAppDialog(title: String, custom: Boolean, onDelete: (Boolean) 
     )
 }
 
-/** Portal links often point at 0.0.0.0; swap in the server's address. */
-private fun portalUrl(url: String, host: String?): String {
-    if (host == null) return url
-    return url.replace("://0.0.0.0", "://$host").replace("://localhost", "://$host").replace("://127.0.0.1", "://$host")
+/** Links to the app's web interface, each with a button to use your own address instead. */
+@Composable
+private fun WebLinksCard(
+    links: List<AppLink>,
+    onOpen: (AppLink) -> Unit,
+    onEdit: (AppLink) -> Unit,
+    onAdd: () -> Unit,
+) {
+    SectionCard(Modifier.fillMaxWidth()) {
+        Column {
+            CardTitle("Web interface", Icons.Outlined.Language)
+            Spacer(Modifier.height(4.dp))
+            links.forEach { link ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onOpen(link) }
+                        .padding(start = 4.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.OpenInBrowser, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Open ${link.label}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            AppLinks.display(link.url),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    IconButton(onClick = { onEdit(link) }) {
+                        Icon(Icons.Outlined.Edit, contentDescription = "Change the address for ${link.label}")
+                    }
+                }
+            }
+            if (links.isEmpty()) {
+                Text(
+                    "TrueNAS doesn't list a web address for this app.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                TextButton(onClick = onAdd, contentPadding = ButtonDefaults.TextButtonWithIconContentPadding) {
+                    Icon(Icons.Outlined.AddLink, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                    Text("Add a web address")
+                }
+            }
+        }
+    }
+}
+
+/** Sets your own address (such as https://jellyfin.example.com from a reverse proxy) for one of an app's links. */
+@Composable
+private fun EditLinkDialog(
+    appName: String,
+    link: AppLink,
+    onSave: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf(if (link.custom) link.url else "") }
+    val normalized = AppLinks.normalize(text)
+    val example = "https://${appName.lowercase()}.example.com"
+    val hint = when {
+        text.isNotEmpty() && normalized == null -> "Enter a web address, like $example"
+        normalized != null && normalized != text -> "Opens $normalized"
+        else -> null
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (link.defaultUrl == null && !link.custom) "Add a web address" else "${link.label} address") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Open the app at your own address, such as an HTTPS address from your reverse proxy or VPN. It's saved on this phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it.trim() },
+                    label = { Text("Address") },
+                    placeholder = { Text(example) },
+                    singleLine = true,
+                    isError = text.isNotEmpty() && normalized == null,
+                    supportingText = if (hint != null) { { Text(hint) } } else null,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Done,
+                        autoCorrectEnabled = false,
+                        capitalization = KeyboardCapitalization.None,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { if (normalized != null) onSave(normalized) }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (link.defaultUrl != null) {
+                    Text(
+                        "TrueNAS address: ${link.defaultUrl}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(normalized) }, enabled = normalized != null) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (link.custom) {
+                    TextButton(onClick = { onSave(null) }) {
+                        Text(if (link.defaultUrl != null) "Use TrueNAS's" else "Remove")
+                    }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 @Composable

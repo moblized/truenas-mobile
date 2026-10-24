@@ -123,6 +123,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _settings = MutableStateFlow(store.settings())
     val settings: StateFlow<Settings> = _settings.asStateFlow()
 
+    /** The user's own web addresses for apps on the active server: app name → link label → URL. */
+    val appLinks = MutableStateFlow<Map<String, Map<String, String>>>(emptyMap())
+
+    init {
+        viewModelScope.launch {
+            _active.collect { p -> appLinks.value = p?.let { store.appLinks(it.id) } ?: emptyMap() }
+        }
+    }
+
     val conn = MutableStateFlow<ConnState>(ConnState.Idle)
     val system = MutableStateFlow<SystemInfo?>(null)
     val realtime = MutableStateFlow<Realtime?>(null)
@@ -636,8 +645,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteApp(app: App, removeData: Boolean, onDone: () -> Unit) {
         perform("app:${app.name}", "Deleting", "${app.title} deleted", after = { a -> apps.value = a.apps(hostIp()) }) { a, p ->
             a.deleteApp(app.name, removeData, p)
+            appLinks.value[app.name]?.keys?.toList()?.forEach { setAppLink(app.name, it, null) }
             onDone()
         }
+    }
+
+    /** Opens the app's link [label] at [url] instead of the address TrueNAS reports (null goes back to it). */
+    fun setAppLink(appName: String, label: String, url: String?) {
+        val serverId = _active.value?.id ?: return
+        val all = appLinks.value.toMutableMap()
+        val forApp = all[appName].orEmpty().toMutableMap()
+        if (url == null) forApp.remove(label) else forApp[label] = url
+        if (forApp.isEmpty()) all.remove(appName) else all[appName] = forApp
+        appLinks.value = all
+        store.saveAppLinks(serverId, all)
     }
 
     suspend fun rollbackVersions(appName: String): List<String> = api?.rollbackVersions(appName) ?: emptyList()
@@ -998,6 +1019,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteServer(id: String) {
         val list = _servers.value.filter { it.id != id }
         store.saveServers(list)
+        store.forgetServer(id)
         _servers.value = list
         tokens.remove(id)
         if (_active.value?.id == id) {

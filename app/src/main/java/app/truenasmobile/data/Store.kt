@@ -118,4 +118,29 @@ class Store(context: Context) {
     fun setSeenAlerts(serverId: String, uuids: Set<String>) {
         prefs.edit().putStringSet("seen_$serverId", HashSet(uuids)).apply()
     }
+
+    /** The user's own web addresses for apps on a server: app name → link label → URL. */
+    fun appLinks(serverId: String): Map<String, Map<String, String>> {
+        val raw = prefs.getString("links_$serverId", null) ?: return emptyMap()
+        return try {
+            val o = JSONObject(raw)
+            o.keys().asSequence().associateWith { app ->
+                val links = o.optJSONObject(app) ?: JSONObject()
+                links.keys().asSequence().associateWith { links.optString(it) }.filterValues { it.isNotBlank() }
+            }.filterValues { it.isNotEmpty() }
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun saveAppLinks(serverId: String, links: Map<String, Map<String, String>>) {
+        val o = JSONObject()
+        links.forEach { (app, m) -> if (m.isNotEmpty()) o.put(app, JSONObject(m)) }
+        prefs.edit().putString("links_$serverId", o.toString()).apply()
+    }
+
+    /** Forgets what was saved for a server that was removed. */
+    fun forgetServer(serverId: String) {
+        prefs.edit().remove("links_$serverId").remove("seen_$serverId").apply()
+    }
 }

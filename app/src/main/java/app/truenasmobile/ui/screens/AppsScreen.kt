@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Stop
@@ -41,11 +42,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.truenasmobile.api.App
+import app.truenasmobile.api.AppLinks
 import app.truenasmobile.api.AppStat
 import app.truenasmobile.ui.AppAction
 import app.truenasmobile.ui.Format
@@ -70,6 +73,12 @@ fun AppsScreen() {
     val apps by vm.apps.collectAsStateWithLifecycle()
     val stats by vm.appStats.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
+    val links by vm.appLinks.collectAsStateWithLifecycle()
+    val server by vm.active.collectAsStateWithLifecycle()
+    val uri = LocalUriHandler.current
+    fun openLink(url: String) {
+        runCatching { uri.openUri(url) }.onFailure { vm.showMessage("Couldn't open $url") }
+    }
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf(AppFilter.ALL) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -160,6 +169,9 @@ fun AppsScreen() {
                         stat = stats[app.name],
                         busyLabel = busy["app:${app.name}"],
                         onClick = { chrome.nav.push(Route.AppDetail(app.name)) },
+                        onOpen = AppLinks.resolve(app.portals, links[app.name], server?.endpoint?.bareHost).firstOrNull()
+                            ?.takeIf { app.isRunning }
+                            ?.let { link -> { openLink(link.url) } },
                         onStart = { vm.appAction(app, AppAction.START) },
                         onStop = { confirmStop = app },
                     )
@@ -195,6 +207,7 @@ private fun AppRow(
     stat: AppStat?,
     busyLabel: String?,
     onClick: () -> Unit,
+    onOpen: (() -> Unit)?,
     onStart: () -> Unit,
     onStop: () -> Unit,
 ) {
@@ -245,6 +258,11 @@ private fun AppRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+        }
+        if (onOpen != null && busyLabel == null) {
+            IconButton(onClick = onOpen) {
+                Icon(Icons.Outlined.OpenInBrowser, contentDescription = "Open ${app.title}", tint = MaterialTheme.colorScheme.primary)
             }
         }
         when {

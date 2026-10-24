@@ -8,7 +8,7 @@ Everything in the TrueNAS web UI's menu, made for a phone:
 
 - **Dashboard**: live CPU (with temperature), memory (services / ZFS cache / free), network and disk throughput, pool health, apps, running jobs.
 - **Storage**: pools with vdev/disk topology and error counts, scrubs; datasets with details, edit (quota, compression, sync, atime, dedup, read-only), add dataset or zvol, delete, lock/unlock; snapshots (take, roll back, delete); disks with temperatures.
-- **Apps**: start, stop, restart, update, update all, edit settings, delete, roll back, live logs, a shell inside containers. Install from the catalog with an easy form (folder picker for storage, ports with conflict warnings, generated passwords, advanced options tucked away), or from Docker Compose YAML. Choose catalog trains.
+- **Apps**: start, stop, restart, update, update all, edit settings, delete, roll back, live logs, a shell inside containers. Open web interfaces from the app list, at the address TrueNAS reports or your own (such as an HTTPS address from a reverse proxy). Install from the catalog with an easy form (folder picker for storage, ports with conflict warnings, generated passwords, advanced options tucked away), or from Docker Compose YAML. Choose catalog trains.
 - **Shares**: add, edit and delete SMB and NFS shares.
 - **Data protection**: periodic snapshot and scrub schedules (add/edit); run, stop, enable/disable and delete replication, cloud sync, rsync and TrueCloud tasks.
 - **Network**: interfaces with addresses and live traffic, hostname/DNS/gateway, static routes.
