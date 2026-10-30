@@ -22,6 +22,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -86,6 +87,7 @@ import app.truenasmobile.ui.components.ConfirmDialog
 import app.truenasmobile.ui.components.EmptyState
 import app.truenasmobile.ui.components.SectionCard
 import app.truenasmobile.ui.components.SectionHeader
+import app.truenasmobile.ui.components.SwitchRow
 import app.truenasmobile.ui.components.SmallSpinner
 import app.truenasmobile.ui.components.StatusChip
 import app.truenasmobile.ui.theme.AppColors
@@ -99,6 +101,8 @@ fun AppDetailScreen(name: String) {
     val busy by vm.busy.collectAsStateWithLifecycle()
     val server by vm.active.collectAsStateWithLifecycle()
     val links by vm.appLinks.collectAsStateWithLifecycle()
+    val auto by vm.autoUpdate.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { if (vm.autoUpdate.value == null) vm.loadAutoUpdate() }
     val app = apps?.firstOrNull { it.name == name }
     var editingLink by remember { mutableStateOf<AppLink?>(null) }
     var confirm by remember { mutableStateOf<AppAction?>(null) }
@@ -171,6 +175,19 @@ fun AppDetailScreen(name: String) {
                         onEdit = { editingLink = it },
                         onAdd = { editingLink = AppLink(AppLinks.DEFAULT_LABEL, "", null, false) },
                     )
+                }
+                auto?.takeIf { it.active }?.let { a ->
+                    item {
+                        SectionCard(Modifier.fillMaxWidth()) {
+                            SwitchRow(
+                                "Update automatically",
+                                if (app.customApp && !a.customImages) "Custom apps are left out. Turn on \"Update custom apps\" in Automatic updates."
+                                else a.schedule.describe(),
+                                a.covers(app.name),
+                                enabled = !busy.containsKey("autoupdate") && (!app.customApp || a.customImages),
+                            ) { on -> vm.setAppAutoUpdate(app, on) }
+                        }
+                    }
                 }
                 val st = stats[app.name]
                 if (app.isRunning && st != null) item { StatsCard(st) }

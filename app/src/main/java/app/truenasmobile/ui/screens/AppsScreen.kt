@@ -19,7 +19,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.Autorenew
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Search
@@ -34,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +54,7 @@ import app.truenasmobile.api.App
 import app.truenasmobile.api.AppLinks
 import app.truenasmobile.api.AppStat
 import app.truenasmobile.ui.AppAction
+import app.truenasmobile.ui.ConnState
 import app.truenasmobile.ui.Format
 import app.truenasmobile.ui.ListPadding
 import app.truenasmobile.ui.LocalChrome
@@ -59,6 +63,7 @@ import app.truenasmobile.ui.ScreenScaffold
 import app.truenasmobile.ui.components.AppIcon
 import app.truenasmobile.ui.components.ConfirmDialog
 import app.truenasmobile.ui.components.EmptyState
+import app.truenasmobile.ui.components.ItemRow
 import app.truenasmobile.ui.components.LoadingBox
 import app.truenasmobile.ui.components.SmallSpinner
 import app.truenasmobile.ui.components.StatusChip
@@ -74,6 +79,11 @@ fun AppsScreen() {
     val stats by vm.appStats.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val links by vm.appLinks.collectAsStateWithLifecycle()
+    val auto by vm.autoUpdate.collectAsStateWithLifecycle()
+    val conn by vm.conn.collectAsStateWithLifecycle()
+    LaunchedEffect(conn == ConnState.Connected) {
+        if (conn == ConnState.Connected) vm.loadAutoUpdate()
+    }
     val server by vm.active.collectAsStateWithLifecycle()
     val uri = LocalUriHandler.current
     fun openLink(url: String) {
@@ -112,6 +122,26 @@ fun AppsScreen() {
                 if (list.isEmpty()) {
                     item { EmptyState(Icons.Outlined.Apps, "No apps installed yet", "Tap Install app to browse the TrueNAS catalog.") }
                     return@LazyColumn
+                }
+                item {
+                    val a = auto
+                    ItemRow(
+                        title = "Automatic updates",
+                        subtitle = when {
+                            a == null -> "Checking…"
+                            a.active -> a.summary()
+                            else -> "Off · tap to set up"
+                        },
+                        onClick = { chrome.nav.push(Route.AutoUpdate) },
+                        leading = {
+                            Icon(
+                                Icons.Outlined.Autorenew,
+                                contentDescription = null,
+                                tint = if (a?.active == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        trailing = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(end = 8.dp)) },
+                    )
                 }
                 item {
                     Row(

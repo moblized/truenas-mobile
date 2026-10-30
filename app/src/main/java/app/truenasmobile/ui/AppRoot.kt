@@ -127,6 +127,7 @@ sealed interface Route {
     data class AppDetail(val name: String) : Route
     data class Logs(val app: String, val containerId: String, val title: String) : Route
     data object Catalog : Route
+    data object AutoUpdate : Route
     data class Install(val name: String, val train: String) : Route
     data class EditApp(val name: String) : Route
     data class Yaml(val appName: String?) : Route
@@ -261,6 +262,7 @@ fun AppRoot(vm: AppViewModel, openAlertsSignal: Int) {
                         is Route.AppDetail -> AppDetailScreen(target.name)
                         is Route.Logs -> LogsScreen(target.app, target.containerId, target.title)
                         Route.Catalog -> CatalogScreen()
+                        Route.AutoUpdate -> AutoUpdateScreen()
                         is Route.Install -> InstallScreen(target.name, target.train)
                         is Route.EditApp -> EditAppScreen(target.name)
                         is Route.Yaml -> YamlScreen(target.appName)

@@ -7,6 +7,10 @@ import app.truenasmobile.api.Alert
 import app.truenasmobile.api.App
 import app.truenasmobile.api.AppSchema
 import app.truenasmobile.api.AppStat
+import app.truenasmobile.api.AutoUpdate
+import app.truenasmobile.api.autoUpdate
+import app.truenasmobile.api.runAutoUpdateNow
+import app.truenasmobile.api.saveAutoUpdate
 import app.truenasmobile.api.CatalogApp
 import app.truenasmobile.api.Dataset
 import app.truenasmobile.api.Disk
@@ -123,6 +127,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _settings = MutableStateFlow(store.settings())
     val settings: StateFlow<Settings> = _settings.asStateFlow()
 
+    /** Automatic app updates (a cron job on the server); null until loaded. */
+    val autoUpdate = MutableStateFlow<AutoUpdate?>(null)
+
     /** The user's own web addresses for apps on the active server: app name → link label → URL. */
     val appLinks = MutableStateFlow<Map<String, Map<String, String>>>(emptyMap())
 
@@ -233,6 +240,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         disks.value = null
         apps.value = null
         appStats.value = emptyMap()
+        autoUpdate.value = null
         alerts.value = null
         services.value = null
         smbShares.value = null
@@ -647,6 +655,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             a.deleteApp(app.name, removeData, p)
             appLinks.value[app.name]?.keys?.toList()?.forEach { setAppLink(app.name, it, null) }
             onDone()
+        }
+    }
+
+    // Automatic app updates
+
+    /** Loads the automatic-update settings from the server (kept in [autoUpdate]). */
+    fun loadAutoUpdate() {
+        val a = api ?: return
+        viewModelScope.launch {
+            try {
+                autoUpdate.value = a.autoUpdate()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Leave it as it was; the screen offers a retry.
+            }
+        }
+    }
+
+    fun saveAutoUpdate(config: AutoUpdate, done: String, after: () -> Unit = {}) {
+        perform("autoupdate", "Saving", done, after = { after() }) { a, _ ->
+            autoUpdate.value = a.saveAutoUpdate(config)
+        }
+    }
+
+    /** Includes or leaves out one app, when automatic updates are on. */
+    fun setAppAutoUpdate(app: App, on: Boolean) {
+        val current = autoUpdate.value ?: return
+        if (!current.active) return
+        saveAutoUpdate(
+            current.withApp(app.name, on),
+            if (on) "${app.title} will update automatically" else "${app.title} won't update automatically",
+        )
+    }
+
+    fun runAutoUpdateNow() {
+        val id = autoUpdate.value?.id ?: return
+        perform("autoupdate:run", "Starting", "Checking for app updates on the server. Progress shows under Jobs.") { a, _ ->
+            a.runAutoUpdateNow(id)
         }
     }
 
