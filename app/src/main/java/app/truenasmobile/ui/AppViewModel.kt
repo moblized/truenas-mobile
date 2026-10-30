@@ -34,6 +34,7 @@ import app.truenasmobile.data.SecretBox
 import app.truenasmobile.data.ServerProfile
 import app.truenasmobile.data.Settings
 import app.truenasmobile.data.Store
+import app.truenasmobile.update.UpdateWorker
 import app.truenasmobile.net.CertInfo
 import app.truenasmobile.net.DisconnectedException
 import app.truenasmobile.net.Endpoint
@@ -1188,6 +1189,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         store.saveSettings(s)
         _settings.value = s
         AlertWorker.schedule(getApplication<Application>(), s.notifyAlerts)
+        UpdateWorker.schedule(getApplication<Application>(), s.checkUpdates)
     }
 
     override fun onCleared() {

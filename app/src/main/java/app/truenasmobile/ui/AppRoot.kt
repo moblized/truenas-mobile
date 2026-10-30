@@ -81,6 +81,7 @@ import app.truenasmobile.ui.screens.AlertsScreen
 import app.truenasmobile.ui.screens.AppDetailScreen
 import app.truenasmobile.ui.screens.AppsScreen
 import app.truenasmobile.ui.screens.AutoUpdateScreen
+import app.truenasmobile.ui.screens.UpdateDialog
 import app.truenasmobile.ui.screens.CatalogScreen
 import app.truenasmobile.ui.screens.EditAppScreen
 import app.truenasmobile.ui.screens.InstallScreen
@@ -295,6 +296,7 @@ fun AppRoot(vm: AppViewModel, openAlertsSignal: Int) {
             }
         }
         ConnectionDialogs(vm)
+        UpdateDialog()
     }
 }
 

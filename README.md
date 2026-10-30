@@ -42,9 +42,11 @@ The app talks directly to your server. To use it outside your network, connect y
 
 Every push to `main` builds a signed APK and publishes it under **Releases**. On your phone, download the latest `truenas-mobile-*.apk` and open it. New versions install over old ones and keep your saved servers.
 
+After that, the app updates itself: it checks GitHub when it opens and once a day, and offers new versions (Menu → Settings → App updates). It can also install them automatically in the background. Android asks you once to allow installs from TrueNAS Mobile.
+
 ## Privacy
 
-Server addresses and credentials stay on the phone, encrypted with a key held in the Android Keystore, and are excluded from backups. The app only talks to your server, plus the TrueNAS app catalog for app icons.
+Server addresses and credentials stay on the phone, encrypted with a key held in the Android Keystore, and are excluded from backups. The app only talks to your server, plus the TrueNAS app catalog for app icons and GitHub to check for new versions of the app.
 
 ## Building
 

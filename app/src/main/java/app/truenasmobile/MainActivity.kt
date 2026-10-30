@@ -16,6 +16,8 @@ import app.truenasmobile.data.ThemeMode
 import app.truenasmobile.ui.AppRoot
 import app.truenasmobile.ui.AppViewModel
 import app.truenasmobile.ui.theme.AppTheme
+import app.truenasmobile.update.UpdateWorker
+import app.truenasmobile.update.Updater
 import app.truenasmobile.work.AlertWorker
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
@@ -43,6 +45,10 @@ class MainActivity : ComponentActivity() {
         }
         AlertWorker.ensureChannel(this)
         if (intent?.getBooleanExtra(EXTRA_OPEN_ALERTS, false) == true) openAlertsSignal++
+        UpdateWorker.schedule(this, vm.settings.value.checkUpdates)
+        if (savedInstanceState == null) {
+            if (intent?.getBooleanExtra(EXTRA_SHOW_UPDATE, false) == true) Updater.checkNow(this) else Updater.checkOnLaunch(this)
+        }
 
         setContent {
             val settings by vm.settings.collectAsStateWithLifecycle()
@@ -67,15 +73,18 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getBooleanExtra(EXTRA_OPEN_ALERTS, false)) openAlertsSignal++
+        if (intent.getBooleanExtra(EXTRA_SHOW_UPDATE, false)) Updater.checkNow(this)
     }
 
     override fun onStart() {
         super.onStart()
+        Updater.inForeground = true
         vm.onForeground()
     }
 
     override fun onStop() {
         super.onStop()
+        Updater.inForeground = false
         vm.onBackground()
         // Switch to the dark (or light) app icon once the app is out of sight.
         if (!isChangingConfigurations) darkTheme?.let { AppIcon.sync(this, it) }
@@ -83,5 +92,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_ALERTS = "open_alerts"
+        const val EXTRA_SHOW_UPDATE = "show_update"
     }
 }

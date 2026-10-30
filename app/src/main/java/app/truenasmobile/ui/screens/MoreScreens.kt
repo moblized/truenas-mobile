@@ -65,6 +65,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.truenasmobile.BuildConfig
 import app.truenasmobile.api.ServiceEntry
 import app.truenasmobile.ui.Format
+import app.truenasmobile.update.UpdateStatus
+import app.truenasmobile.update.Updater
 import app.truenasmobile.ui.ListPadding
 import app.truenasmobile.ui.LocalChrome
 import app.truenasmobile.ui.Route
@@ -87,6 +89,7 @@ fun MoreScreen() {
     val active by vm.active.collectAsStateWithLifecycle()
     val system by vm.system.collectAsStateWithLifecycle()
     val running by vm.runningJobs.collectAsStateWithLifecycle()
+    val update by Updater.status.collectAsStateWithLifecycle()
     val uri = LocalUriHandler.current
 
     // Same order as the TrueNAS web UI's menu.
@@ -141,7 +144,15 @@ fun MoreScreen() {
                     onClick = { nav.push(Route.Servers) },
                 )
             }
-            item { NavRow(Icons.Outlined.Settings, "Settings", "Theme, notifications", onClick = { nav.push(Route.Settings) }) }
+            item {
+                val newVersion = (update as? UpdateStatus.Available)?.release?.version
+                NavRow(
+                    Icons.Outlined.Settings,
+                    "Settings",
+                    if (newVersion != null) "App update available: $newVersion" else "Theme, notifications, app updates",
+                    onClick = { nav.push(Route.Settings) },
+                )
+            }
             item {
                 NavRow(
                     Icons.Outlined.Info,

@@ -60,6 +60,10 @@ data class Settings(
     val pureBlack: Boolean = false,
     val notifyAlerts: Boolean = false,
     val notifyLevel: NotifyLevel = NotifyLevel.WARNING,
+    /** Look for new versions of this app (when it opens, and once a day). */
+    val checkUpdates: Boolean = true,
+    /** Download and install new versions in the background. */
+    val autoInstallUpdates: Boolean = false,
 )
 
 /** Saved servers and settings, in plain SharedPreferences (secrets inside are encrypted). */
@@ -100,6 +104,8 @@ class Store(context: Context) {
         pureBlack = prefs.getBoolean("pureBlack", false),
         notifyAlerts = prefs.getBoolean("notify", false),
         notifyLevel = runCatching { NotifyLevel.valueOf(prefs.getString("notifyLevel", null) ?: "") }.getOrDefault(NotifyLevel.WARNING),
+        checkUpdates = prefs.getBoolean("checkUpdates", true),
+        autoInstallUpdates = prefs.getBoolean("autoInstallUpdates", false),
     )
 
     fun saveSettings(s: Settings) {
@@ -109,8 +115,31 @@ class Store(context: Context) {
             .putBoolean("pureBlack", s.pureBlack)
             .putBoolean("notify", s.notifyAlerts)
             .putString("notifyLevel", s.notifyLevel.name)
+            .putBoolean("checkUpdates", s.checkUpdates)
+            .putBoolean("autoInstallUpdates", s.autoInstallUpdates)
             .apply()
     }
+
+    // App updates
+
+    var lastUpdateCheck: Long
+        get() = prefs.getLong("lastUpdateCheck", 0)
+        set(value) = prefs.edit().putLong("lastUpdateCheck", value).apply()
+
+    /** The build the user said "Later" to, so it isn't offered again automatically. */
+    var dismissedUpdate: Int
+        get() = prefs.getInt("dismissedUpdate", 0)
+        set(value) = prefs.edit().putInt("dismissedUpdate", value).apply()
+
+    /** The build a background check already notified about. */
+    var notifiedUpdate: Int
+        get() = prefs.getInt("notifiedUpdate", 0)
+        set(value) = prefs.edit().putInt("notifiedUpdate", value).apply()
+
+    /** The version this app is installing over itself, to say "updated" once it's done. */
+    var pendingUpdate: String?
+        get() = prefs.getString("pendingUpdate", null)
+        set(value) = prefs.edit().putString("pendingUpdate", value).apply()
 
     /** Alerts already shown (in the app or as a notification), per server, so they don't notify again. */
     fun seenAlerts(serverId: String): Set<String> = prefs.getStringSet("seen_$serverId", emptySet()) ?: emptySet()

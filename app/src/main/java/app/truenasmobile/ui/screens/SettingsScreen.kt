@@ -115,10 +115,15 @@ fun SettingsScreen() {
                 }
             }
 
+            SectionHeader("App updates")
+            SectionCard(Modifier.fillMaxWidth()) {
+                AppUpdatesCard(settings, vm::updateSettings)
+            }
+
             SectionHeader("Privacy")
             SectionCard(Modifier.fillMaxWidth()) {
                 Text(
-                    "Server addresses and credentials are stored only on this phone, encrypted with a key from the Android Keystore, and are excluded from cloud backups. The app talks only to your server (and loads app icons from the TrueNAS catalog).",
+                    "Server addresses and credentials are stored only on this phone, encrypted with a key from the Android Keystore, and are excluded from cloud backups. The app talks only to your server, plus the TrueNAS catalog for app icons and GitHub to check for new versions of this app.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
