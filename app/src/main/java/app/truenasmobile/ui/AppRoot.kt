@@ -80,6 +80,7 @@ import app.truenasmobile.net.CertInfo
 import app.truenasmobile.ui.screens.AlertsScreen
 import app.truenasmobile.ui.screens.AppDetailScreen
 import app.truenasmobile.ui.screens.AppsScreen
+import app.truenasmobile.ui.screens.AutoUpdateScreen
 import app.truenasmobile.ui.screens.CatalogScreen
 import app.truenasmobile.ui.screens.EditAppScreen
 import app.truenasmobile.ui.screens.InstallScreen
