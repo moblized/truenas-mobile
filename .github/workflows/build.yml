@@ -29,7 +29,20 @@ jobs:
       - name: Run tests and build
         run: |
           chmod +x gradlew
-          ./gradlew testDebugUnitTest assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
+          set -o pipefail
+          ./gradlew testDebugUnitTest assembleRelease -PversionCode=${{ github.run_number }} --stacktrace 2>&1 | tee build.log
+
+      # Show compiler errors, failed tests and lint problems on the run's summary page.
+      - name: Report build errors
+        if: failure()
+        run: |
+          grep -E '^e: |FAILED$|Error: |What went wrong|> .*(Exception|Error)|^[A-Za-z]+Test > ' build.log | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+            [ -f "$f" ] && grep -A3 '<failure' "$f" | head -8 | tr '\n' ' ' | sed 's/^/::error::/' && echo
+          done
+          exit 0
 
       - name: Name the APK
         run: |
